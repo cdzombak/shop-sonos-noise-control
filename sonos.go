@@ -50,7 +50,9 @@ func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, v
 				}
 				client.playbackStateMutex.Lock()
 				client.isPlaying = info.CurrentTransportState == upnp.State_PLAYING
-				client.lastPlaybackSpeed = info.CurrentSpeed
+				if client.isPlaying {
+					client.lastPlaybackSpeed = info.CurrentSpeed
+				}
 				client.playbackStateMutex.Unlock()
 				if verbose {
 					log.Printf("[sonos] tick %s: playback state %s; speed %s", t, info.CurrentTransportState, info.CurrentSpeed)
@@ -154,7 +156,7 @@ func (c *sonosClient) Pause() error {
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
-		retry.MaxDelay(2*time.Second),
+		retry.MaxDelay(1*time.Second),
 	); err != nil {
 		return errors.Wrap(err, "pause call failed")
 	}
@@ -175,7 +177,7 @@ func (c *sonosClient) Play(speed string) error {
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
-		retry.MaxDelay(2*time.Second),
+		retry.MaxDelay(1*time.Second),
 	); err != nil {
 		return errors.Wrap(err, "play call failed")
 	}
@@ -200,7 +202,7 @@ func (c *sonosClient) Seek(seconds int) error {
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
-		retry.MaxDelay(2*time.Second),
+		retry.MaxDelay(1*time.Second),
 	); err != nil {
 		return errors.Wrap(err, "seek call failed")
 	}

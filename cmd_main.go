@@ -19,7 +19,11 @@ const (
 	LoudSonosWasPlaying
 )
 
-func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSeconds int, verbose bool) error {
+const (
+	sonosPollInterval = 1 * time.Second
+)
+
+func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSeconds int, iface, targetSonosId string, verbose bool) error {
 	if thresholdDb < 0 {
 		return fmt.Errorf("given threshold dB %f is negative", thresholdDb)
 	}
@@ -38,8 +42,10 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 		return err
 	}
 
-	// TODO(cdzombak): make a real SonosConnection
-	const sonosIsPlaying = true
+	sonos, err := StartSonosClient(iface, targetSonosId, sonosPollInterval, verbose)
+	if err != nil {
+		return err
+	}
 
 	ticker := time.NewTicker(samplingInterval)
 	done := make(chan bool)
@@ -68,10 +74,14 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 					panic("this case should not be reachable")
 				case Quiet:
 					if noiseLevelDb >= thresholdDb {
-						if sonosIsPlaying {
+						if sonos.IsPlaying() {
 							go log.Printf("[monitor] tick %s: noise level %.1f dB is above threshold; pausing Sonos", t, noiseLevelDb)
 							state = LoudSonosWasPlaying
-							// TODO(cdzombak): async pause Sonos
+							go func() {
+								if err := sonos.Pause(); err != nil {
+									log.Printf("[monitor] tick %s: failed to pause Sonos: %s", t, err)
+								}
+							}()
 						} else {
 							go log.Printf("[monitor] tick %s: noise level %.1f dB is above threshold; Sonos is not playing", t, noiseLevelDb)
 							state = LoudSonosWasNotPlaying
@@ -80,7 +90,15 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 				case LoudSonosWasPlaying:
 					if noiseLevelDb < thresholdDb {
 						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; resuming Sonos", t, noiseLevelDb)
-						// TODO(cdzombak): async resume Sonos
+						seekSeconds := -1 * (thresholdSeconds + 1)
+						go func() {
+							if err := sonos.Seek(seekSeconds); err != nil {
+								log.Printf("[monitor] tick %s: failed to seek Sonos %d seconds: %s", t, seekSeconds, err)
+							}
+							if err := sonos.Play(sonos.LastPlaybackSpeed()); err != nil {
+								log.Printf("[monitor] tick %s: failed to resume Sonos: %s", t, err)
+							}
+						}()
 						state = Quiet
 					}
 				case LoudSonosWasNotPlaying:

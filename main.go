@@ -44,8 +44,6 @@ func main() {
 		os.Exit(ExitError)
 	}
 
-	// TODO(cdzombak): actual Sonos integration
-
 	if *runDiscovery {
 		if err := runDeviceDiscovery(*iface, *verbose); err != nil {
 			log.Println(err)
