@@ -17,6 +17,8 @@ const (
 	ExitError   = 1
 )
 
+var version = "<dev>"
+
 func main() {
 	runDiscovery := flag.Bool("discover", false, "search for Sonos devices")
 	runTestSonos := flag.Bool("test-sonos", false, "run a test of controlling the selected Sonos device")
@@ -26,8 +28,7 @@ func main() {
 	thresholdDb := flag.Float64("db", 75.0, "dB value considered loud")
 	thresholdSeconds := flag.Int("sec", 3, "time window used for the moving noise level average")
 	flag.Usage = func() {
-		// TODO(cdzombak): add version & makefile
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "shop-noise-sonos-control version %s\n", "TKTKTK")
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "shop-noise-sonos-control version %s\n", version)
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "by Chris Dzombak <https://www.github.com/cdzombak>\n\n")
 		_, _ = fmt.Fprintln(flag.CommandLine.Output(), "Usage:")
 		flag.PrintDefaults()
