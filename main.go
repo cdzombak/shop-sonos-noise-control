@@ -23,8 +23,8 @@ func main() {
 	runDiscovery := flag.Bool("discover", false, "search for Sonos devices")
 	runTestSonos := flag.Bool("test-sonos", false, "run a test of controlling the selected Sonos device")
 	verbose := flag.Bool("verbose", false, "increase log detail, including noise level every sampling interval")
-	iface := flag.String("interface", "eth0", "network interface for Sonos UPnP discovery")
-	sonosId := flag.String("sonos-uuid", "RINCON_347E5CF2B10401400", "UUID of Sonos device to control, eg. RINCON_347E5CF2B10401400")
+	ifaceName := flag.String("interface", "eth0", "network interface for Sonos UPnP discovery")
+	targetSonosId := flag.String("sonos-uuid", "RINCON_347E5CF2B10401400", "UUID of Sonos device to control, eg. RINCON_347E5CF2B10401400")
 	thresholdDb := flag.Float64("db", 75.0, "dB value considered loud")
 	thresholdSeconds := flag.Int("sec", 3, "time window used for the moving noise level average")
 	flag.Usage = func() {
@@ -45,7 +45,7 @@ func main() {
 	}
 
 	if *runDiscovery {
-		if err := runDeviceDiscovery(*iface, *verbose); err != nil {
+		if err := runDeviceDiscovery(*ifaceName, *verbose); err != nil {
 			log.Println(err)
 			os.Exit(ExitError)
 		}
@@ -53,14 +53,21 @@ func main() {
 	}
 
 	if *runTestSonos {
-		if err := runSonosTest(*iface, *sonosId, *verbose); err != nil {
+		if err := runSonosTest(*ifaceName, *targetSonosId, *verbose); err != nil {
 			log.Println(err)
 			os.Exit(ExitError)
 		}
 		os.Exit(ExitSuccess)
 	}
 
-	if err := runMonitor(samplingInterval, *thresholdDb, *thresholdSeconds, *verbose); err != nil {
+	if err := runMonitor(RunMonitorArgs{
+		samplingInterval: samplingInterval,
+		thresholdDb:      *thresholdDb,
+		thresholdSeconds: *thresholdSeconds,
+		iface:            *ifaceName,
+		targetSonosId:    *targetSonosId,
+		verbose:          *verbose,
+	}); err != nil {
 		log.Println(err)
 		os.Exit(ExitError)
 	}

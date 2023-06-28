@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -19,35 +20,50 @@ const (
 	LoudSonosWasPlaying
 )
 
-const (
-	sonosPollInterval = 1 * time.Second
-)
+type RunMonitorArgs struct {
+	samplingInterval time.Duration
+	thresholdDb      float64
+	thresholdSeconds int
+	iface            string
+	targetSonosId    string
+	verbose          bool
+}
 
-func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSeconds int, iface, targetSonosId string, verbose bool) error {
-	if thresholdDb < 0 {
-		return fmt.Errorf("given threshold dB %f is negative", thresholdDb)
+func runMonitor(args RunMonitorArgs) error {
+	if args.thresholdDb < 0 {
+		return fmt.Errorf("given threshold dB %f is negative", args.thresholdDb)
 	}
-	if thresholdSeconds < 0 {
-		return fmt.Errorf("given threshold seconds %d is negative", thresholdSeconds)
+	if args.thresholdSeconds < 0 {
+		return fmt.Errorf("given threshold seconds %d is negative", args.thresholdSeconds)
+	}
+	if args.samplingInterval < 0 {
+		return fmt.Errorf("giuven sampling interval %s is negative", args.samplingInterval)
+	}
+	if args.iface == "" {
+		return errors.New("given interface name is empty")
+	}
+	if args.targetSonosId == "" {
+		return errors.New("given Sonos device ID is empty")
 	}
 
 	state := Starting
 
-	samples := int(math.Round(float64((time.Duration(thresholdSeconds) * time.Second) / samplingInterval)))
-	log.Printf("monitoring a window of %d seconds with sampling interval of %d ms\n", thresholdSeconds, samplingInterval.Milliseconds())
+	samples := int(math.Round(float64((time.Duration(args.thresholdSeconds) * time.Second) / args.samplingInterval)))
+	log.Printf("monitoring a window of %d seconds with sampling interval of %d ms\n", args.thresholdSeconds, args.samplingInterval.Milliseconds())
 	log.Printf("using a moving average of %d samples\n", samples)
 
-	monitor, err := StartNoiseLevelMonitor(samples, samplingInterval)
+	monitor, err := StartNoiseLevelMonitor(samples, args.samplingInterval)
 	if err != nil {
 		return err
 	}
 
-	sonos, err := StartSonosClient(iface, targetSonosId, sonosPollInterval, verbose)
+	const sonosPollInterval = 1 * time.Second
+	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, args.verbose)
 	if err != nil {
 		return err
 	}
 
-	ticker := time.NewTicker(samplingInterval)
+	ticker := time.NewTicker(args.samplingInterval)
 	done := make(chan bool)
 	go func() {
 		for {
@@ -65,7 +81,7 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 				}
 
 				noiseLevelDb := monitor.ReadAverage()
-				if verbose {
+				if args.verbose {
 					go log.Printf("[monitor] tick %s: noise level %.1f dB", t, noiseLevelDb)
 				}
 
@@ -73,7 +89,7 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 				case Starting:
 					panic("this case should not be reachable")
 				case Quiet:
-					if noiseLevelDb >= thresholdDb {
+					if noiseLevelDb >= args.thresholdDb {
 						if sonos.IsPlaying() {
 							go log.Printf("[monitor] tick %s: noise level %.1f dB is above threshold; pausing Sonos", t, noiseLevelDb)
 							state = LoudSonosWasPlaying
@@ -88,9 +104,9 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 						}
 					}
 				case LoudSonosWasPlaying:
-					if noiseLevelDb < thresholdDb {
+					if noiseLevelDb < args.thresholdDb {
 						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; resuming Sonos", t, noiseLevelDb)
-						seekSeconds := -1 * (thresholdSeconds + 1)
+						seekSeconds := -1 * (args.thresholdSeconds + 1)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
 								log.Printf("[monitor] tick %s: failed to seek Sonos %d seconds: %s", t, seekSeconds, err)
@@ -102,7 +118,7 @@ func runMonitor(samplingInterval time.Duration, thresholdDb float64, thresholdSe
 						state = Quiet
 					}
 				case LoudSonosWasNotPlaying:
-					if noiseLevelDb < thresholdDb {
+					if noiseLevelDb < args.thresholdDb {
 						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; Sonos was not playing", t, noiseLevelDb)
 						state = Quiet
 					}

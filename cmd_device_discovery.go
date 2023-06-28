@@ -10,7 +10,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-func runDeviceDiscovery(iface string, verbose bool) error {
+func runDeviceDiscovery(ifaceName string, verbose bool) error {
+	if ifaceName == "" {
+		return errors.New("given interface name is empty")
+	}
+
 	mgr := ssdp.MakeManager()
 	defer func(mgr ssdp.Manager) {
 		if err := mgr.Close(); err != nil {
@@ -26,8 +30,8 @@ func runDeviceDiscovery(iface string, verbose bool) error {
 		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
-	if err := mgr.Discover(iface, "11209", false); err != nil {
-		return errors.Wrapf(err, "SSDP discovery on interface %s failed", iface)
+	if err := mgr.Discover(ifaceName, "11209", false); err != nil {
+		return errors.Wrapf(err, "SSDP discovery on interface %s failed", ifaceName)
 	}
 
 	log.SetOutput(os.Stderr)
