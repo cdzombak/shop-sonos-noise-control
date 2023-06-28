@@ -12,10 +12,12 @@ import (
 	"gobot.io/x/gobot/platforms/raspi"
 )
 
-func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration) (NoiseLevelMonitor, error) {
+func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, maxDb float64) (NoiseLevelMonitor, error) {
 	monitor := &noiseLevelMonitor{
 		samplingInterval: samplingInterval,
 		average:          ma.Concurrent(ma.New(samples)),
+		minDb:            minDb,
+		maxDb:            maxDb,
 	}
 
 	// assume running on a Raspberry Pi with noise level monitor connected to I2C ADS1015 ADC
@@ -38,7 +40,9 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration) (NoiseL
 					log.Fatalf("failed to read ADC: %s", err)
 				}
 				db := v * 100
-				monitor.average.Add(db)
+				if minDb < db && db < maxDb {
+					monitor.average.Add(db)
+				}
 			})
 		},
 	)
@@ -59,6 +63,7 @@ type noiseLevelMonitor struct {
 	samplingInterval time.Duration
 	average          *ma.ConcurrentMovingAverage
 	adcBot           *gobot.Robot
+	minDb, maxDb     float64
 }
 
 func (m *noiseLevelMonitor) ReadAverage() float64 {

@@ -27,6 +27,7 @@ func main() {
 	targetSonosId := flag.String("sonos-uuid", "RINCON_347E5CF2B10401400", "UUID of Sonos device to control, eg. RINCON_347E5CF2B10401400")
 	thresholdDb := flag.Float64("db", 75.0, "dB value considered loud")
 	thresholdSeconds := flag.Int("sec", 3, "time window used for the moving noise level average")
+	dbFilterRange := flag.String("db-filter-range", "10-180", "dB values outside this range read from the ADC will be considered nonsense and discarded")
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "shop-noise-sonos-control version %s\n", version)
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "by Chris Dzombak <https://www.github.com/cdzombak>\n\n")
@@ -67,6 +68,7 @@ func main() {
 		iface:            *ifaceName,
 		targetSonosId:    *targetSonosId,
 		verbose:          *verbose,
+		dbFilterRange:    *dbFilterRange,
 	}); err != nil {
 		log.Println(err)
 		os.Exit(ExitError)

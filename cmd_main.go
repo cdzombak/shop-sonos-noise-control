@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -26,6 +28,7 @@ type RunMonitorArgs struct {
 	thresholdSeconds int
 	iface            string
 	targetSonosId    string
+	dbFilterRange    string
 	verbose          bool
 }
 
@@ -37,7 +40,7 @@ func runMonitor(args RunMonitorArgs) error {
 		return fmt.Errorf("given threshold seconds %d is negative", args.thresholdSeconds)
 	}
 	if args.samplingInterval < 0 {
-		return fmt.Errorf("giuven sampling interval %s is negative", args.samplingInterval)
+		return fmt.Errorf("given sampling interval %s is negative", args.samplingInterval)
 	}
 	if args.iface == "" {
 		return errors.New("given interface name is empty")
@@ -46,13 +49,37 @@ func runMonitor(args RunMonitorArgs) error {
 		return errors.New("given Sonos device ID is empty")
 	}
 
+	minDb := 0.0
+	maxDb := 200.0
+	if args.dbFilterRange != "" {
+		dbFilterRangeParts := strings.Split(args.dbFilterRange, "-")
+		if len(dbFilterRangeParts) != 2 {
+			return fmt.Errorf("given dB filter range '%s' is invalid; must be two positive integers separated by a hyphen (-)", args.dbFilterRange)
+		}
+		minDbInt, err := strconv.ParseInt(dbFilterRangeParts[0], 10, 32)
+		if err != nil || minDbInt < 0 {
+			return fmt.Errorf("given dB filter range '%s' is invalid; must be two positive integers separated by a hyphen (-)", args.dbFilterRange)
+		}
+		maxDbInt, err := strconv.ParseInt(dbFilterRangeParts[1], 10, 32)
+		if err != nil || maxDbInt < 0 {
+			return fmt.Errorf("given dB filter range '%s' is invalid; must be two positive integers separated by a hyphen (-)", args.dbFilterRange)
+		}
+		if minDbInt > maxDbInt {
+			minDb = float64(maxDbInt)
+			maxDb = float64(minDbInt)
+		} else {
+			minDb = float64(minDbInt)
+			maxDb = float64(maxDbInt)
+		}
+	}
+
 	state := Starting
 
 	samples := int(math.Round(float64((time.Duration(args.thresholdSeconds) * time.Second) / args.samplingInterval)))
 	log.Printf("monitoring a window of %d seconds with sampling interval of %d ms\n", args.thresholdSeconds, args.samplingInterval.Milliseconds())
 	log.Printf("using a moving average of %d samples\n", samples)
 
-	monitor, err := StartNoiseLevelMonitor(samples, args.samplingInterval)
+	monitor, err := StartNoiseLevelMonitor(samples, args.samplingInterval, minDb, maxDb)
 	if err != nil {
 		return err
 	}
