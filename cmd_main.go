@@ -23,13 +23,14 @@ const (
 )
 
 type RunMonitorArgs struct {
-	samplingInterval time.Duration
-	thresholdDb      float64
-	thresholdSeconds int
-	iface            string
-	targetSonosId    string
-	dbFilterRange    string
-	verbose          bool
+	samplingInterval     time.Duration
+	thresholdDb          float64
+	thresholdSeconds     int
+	iface                string
+	targetSonosId        string
+	dbFilterRange        string
+	verbose              bool
+	extraSeekBackSeconds int
 }
 
 func runMonitor(args RunMonitorArgs) error {
@@ -47,6 +48,9 @@ func runMonitor(args RunMonitorArgs) error {
 	}
 	if args.targetSonosId == "" {
 		return errors.New("given Sonos device ID is empty")
+	}
+	if args.extraSeekBackSeconds < 0 {
+		return fmt.Errorf("given extra-seekback-sec %d is negative", args.extraSeekBackSeconds)
 	}
 
 	minDb := 0.0
@@ -133,7 +137,7 @@ func runMonitor(args RunMonitorArgs) error {
 				case LoudSonosWasPlaying:
 					if noiseLevelDb < args.thresholdDb {
 						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; resuming Sonos", t, noiseLevelDb)
-						seekSeconds := -1 * (args.thresholdSeconds + 1)
+						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
 								log.Printf("[monitor] tick %s: failed to seek Sonos %d seconds: %s", t, seekSeconds, err)
