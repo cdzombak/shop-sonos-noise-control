@@ -26,7 +26,7 @@ func main() {
 	ifaceName := flag.String("interface", "eth0", "network interface for Sonos UPnP discovery")
 	targetSonosId := flag.String("sonos-uuid", "RINCON_347E5CF2B10401400", "UUID of Sonos device to control, eg. RINCON_347E5CF2B10401400")
 	thresholdDb := flag.Float64("db", 75.0, "dB value considered loud")
-	thresholdSeconds := flag.Int("sec", 3, "time window used for the moving noise level average")
+	thresholdSeconds := flag.Int("sec", 2, "time window for the moving noise level average")
 	extraSeekBackSeconds := flag.Int("extra-seekback-sec", 1, "after noise quiets, seek Sonos back by this amount _plus_ the moving average time window")
 	dbFilterRange := flag.String("db-filter-range", "10-180", "dB values outside this range read from the ADC will be considered nonsense and discarded")
 	flag.Usage = func() {
