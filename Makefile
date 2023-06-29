@@ -51,6 +51,8 @@ install-rpi: build-rpi ## Build & install from ./out/rpi to /usr/local/bin (run 
 
 .PHONY: install-systemd
 install-systemd: ## Install the systemd service (run with sudo)
-	@echo "Installing systemd service in /etc/systemd/system; customize it there and run 'systemctl daemon-reload' if needed."
+	@echo "Installing systemd service in /etc/systemd/system; customize it there and reload the systemd daemon."
+	@echo "$ sudo nano /etc/systemd/system/${SVCFILE_NAME}"
+	@echo "$ sudo systemctl daemon-reload"
 	cp ./dist/${SVCFILE_NAME} /etc/systemd/system
 	chown root:root /etc/systemd/system/${SVCFILE_NAME}
