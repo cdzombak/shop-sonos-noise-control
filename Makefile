@@ -36,23 +36,24 @@ build-rpi: ## Build (for Raspberry Pi 2+, running a 32-bit OS) to ./out/rpi
 	env GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-X main.version=${VERSION}" -o ./out/rpi/${BIN_NAME} .
 
 .PHONY: install
-install: build ## Build & install from ./out to /usr/local/bin (run with sudo)
+install: ## Install from ./out to /usr/local/bin (run with sudo)
 	mkdir -p /usr/local/bin
-	cp ./out/${BIN_NAME} /usr/local/bin
+	cp -i ./out/${BIN_NAME} /usr/local/bin
 	chown root:root /usr/local/bin/${BIN_NAME}
 	chmod +x /usr/local/bin/${BIN_NAME}
 
 .PHONY: install-rpi
-install-rpi: build-rpi ## Build & install from ./out/rpi to /usr/local/bin (run with sudo)
+install-rpi: ## Install from ./out/rpi to /usr/local/bin (run with sudo)
 	mkdir -p /usr/local/bin
-	cp ./out/rpi/${BIN_NAME} /usr/local/bin
+	cp -i ./out/rpi/${BIN_NAME} /usr/local/bin
 	chown root:root /usr/local/bin/${BIN_NAME}
 	chmod +x /usr/local/bin/${BIN_NAME}
 
 .PHONY: install-systemd
 install-systemd: ## Install the systemd service (run with sudo)
 	@echo "Installing systemd service in /etc/systemd/system; customize it there and reload the systemd daemon."
-	@echo "$ sudo nano /etc/systemd/system/${SVCFILE_NAME}"
-	@echo "$ sudo systemctl daemon-reload"
-	cp ./dist/${SVCFILE_NAME} /etc/systemd/system
+	@echo " > sudo nano /etc/systemd/system/${SVCFILE_NAME}"
+	@echo " > sudo systemctl daemon-reload"
+	@echo " > sudo systemctl enable ${SVCFILE_NAME}"
+	cp -i ./dist/${SVCFILE_NAME} /etc/systemd/system
 	chown root:root /etc/systemd/system/${SVCFILE_NAME}
