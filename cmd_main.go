@@ -100,14 +100,14 @@ func runMonitor(args RunMonitorArgs) error {
 		return err
 	}
 
-	log.Println("starting main mointor/control loop")
+	log.Println("starting main monitor/control loop")
 	ticker := time.NewTicker(args.samplingInterval)
 	done := make(chan bool)
 	go func() {
 		for {
 			select {
 			case <-done:
-				log.Println("exiting main mointor/control loop")
+				log.Println("exiting main monitor/control loop")
 				return
 			case t := <-ticker.C:
 				if !monitor.Ready() {
