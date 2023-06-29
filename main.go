@@ -29,6 +29,11 @@ func main() {
 	thresholdSeconds := flag.Int("sec", 2, "time window for the moving noise level average")
 	extraSeekBackSeconds := flag.Int("extra-seekback-sec", 1, "after noise quiets, seek Sonos back by this amount _plus_ the moving average time window")
 	dbFilterRange := flag.String("db-filter-range", "10-180", "dB values outside this range read from the ADC will be considered nonsense and discarded")
+	metricsDeviceName := flag.String("metrics-device-name", "", "device name reported to InfluxDB")
+	influxUrl := flag.String("metrics-influx-url", "http://192.168.1.63:8086", "InfluxDB instance for metrics reporting (leave blank for none)")
+	influxBucket := flag.String("metrics-influx-bucket", "default", "InfluxDB bucket for metrics reporting")
+	influxUsername := flag.String("metrics-influx-username", "", "InfluxDB username for metrics reporting")
+	influxPassword := flag.String("metrics-influx-password", "", "InfluxDB password for metrics reporting")
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "shop-noise-sonos-control version %s\n", version)
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "by Chris Dzombak <https://www.github.com/cdzombak>\n\n")
@@ -61,6 +66,15 @@ func main() {
 	}
 
 	if !*runDiscovery && !*runTestSonos {
+		metricsConfig := MetricsConfig{
+			Enabled:        *metricsDeviceName != "",
+			DeviceName:     *metricsDeviceName,
+			InfluxUrl:      *influxUrl,
+			InfluxBucket:   *influxBucket,
+			InfluxUsername: *influxUsername,
+			InfluxPassword: *influxPassword,
+		}
+
 		if err := runMonitor(RunMonitorArgs{
 			samplingInterval:     samplingInterval,
 			thresholdDb:          *thresholdDb,
@@ -70,6 +84,7 @@ func main() {
 			verbose:              *verbose,
 			dbFilterRange:        *dbFilterRange,
 			extraSeekBackSeconds: *extraSeekBackSeconds,
+			metricsConfig:        metricsConfig,
 		}); err != nil {
 			log.Println(err)
 			os.Exit(ExitError)

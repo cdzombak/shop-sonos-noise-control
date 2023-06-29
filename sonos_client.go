@@ -16,15 +16,16 @@ import (
 	"github.com/pkg/errors"
 )
 
-func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, verbose bool) (SonosClient, error) {
+func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duration, metrics MetricsReporter, verbose bool) (SonosClient, error) {
 	client := &sonosClient{
 		isPlaying:         false,
 		lastPlaybackSpeed: "1",
+		metrics:           metrics,
 	}
 
 	log.Println("starting Sonos client")
 
-	if err := client.sonosConnect(iface, targetSonosId, verbose); err != nil {
+	if err := client.sonosConnect(ifaceName, targetSonosId, verbose); err != nil {
 		return nil, err
 	}
 
@@ -42,6 +43,9 @@ func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, v
 					func() error {
 						var err error
 						info, err = client.sonos.GetTransportInfo(0)
+						if err != nil {
+							metrics.ReportSonosCallError()
+						}
 						return err
 					},
 					retry.Attempts(10),
@@ -50,15 +54,17 @@ func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, v
 				); err != nil {
 					log.Fatalf("GetTransportInfo failed after 10 attempts: %s", err)
 				}
+				isPlaying := info.CurrentTransportState == upnp.State_PLAYING
 				client.playbackStateMutex.Lock()
-				client.isPlaying = info.CurrentTransportState == upnp.State_PLAYING
-				if client.isPlaying {
+				client.isPlaying = isPlaying
+				if isPlaying {
 					client.lastPlaybackSpeed = info.CurrentSpeed
 				}
 				client.playbackStateMutex.Unlock()
 				if verbose {
 					log.Printf("[sonos] tick %s: playback state %s; speed %s", t, info.CurrentTransportState, info.CurrentSpeed)
 				}
+				metrics.ReportSonosPlayState(isPlaying)
 			}
 		}
 	}()
@@ -74,7 +80,7 @@ type SonosClient interface {
 	Play(speed string) error
 	Seek(seconds int) error
 
-	Close() error
+	Close()
 }
 
 type sonosClient struct {
@@ -85,10 +91,11 @@ type sonosClient struct {
 	pollTicker   *time.Ticker
 	pollDoneChan chan bool
 
-	sonos *sonos.Sonos
+	sonos   *sonos.Sonos
+	metrics MetricsReporter
 }
 
-func (c *sonosClient) sonosConnect(iface, targetSonosId string, verbose bool) error {
+func (c *sonosClient) sonosConnect(ifaceName, targetSonosId string, verbose bool) error {
 	if c.sonos != nil {
 		panic("sonosConnect already called on this client")
 	}
@@ -104,8 +111,8 @@ func (c *sonosClient) sonosConnect(iface, targetSonosId string, verbose bool) er
 		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
-	if err := mgr.Discover(iface, "11209", false); err != nil {
-		return errors.Wrapf(err, "SSDP discovery on interface %s failed", iface)
+	if err := mgr.Discover(ifaceName, "11209", false); err != nil {
+		return errors.Wrapf(err, "SSDP discovery on interface %s failed", ifaceName)
 	}
 
 	log.SetOutput(os.Stderr)
@@ -154,7 +161,11 @@ func (c *sonosClient) LastPlaybackSpeed() string {
 func (c *sonosClient) Pause() error {
 	if err := retry.Do(
 		func() error {
-			return c.sonos.Pause(0)
+			err := c.sonos.Pause(0)
+			if err != nil {
+				c.metrics.ReportSonosCallError()
+			}
+			return err
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
@@ -175,7 +186,11 @@ func (c *sonosClient) Play(speed string) error {
 
 	if err := retry.Do(
 		func() error {
-			return c.sonos.Play(0, speed)
+			err := c.sonos.Play(0, speed)
+			if err != nil {
+				c.metrics.ReportSonosCallError()
+			}
+			return err
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
@@ -200,7 +215,11 @@ func (c *sonosClient) Seek(seconds int) error {
 
 	if err := retry.Do(
 		func() error {
-			return c.sonos.Seek(0, "TIME_DELTA", seekTimeStr)
+			err := c.sonos.Seek(0, "TIME_DELTA", seekTimeStr)
+			if err != nil {
+				c.metrics.ReportSonosCallError()
+			}
+			return err
 		},
 		retry.Attempts(3),
 		retry.Delay(100*time.Millisecond),
@@ -211,8 +230,7 @@ func (c *sonosClient) Seek(seconds int) error {
 	return nil
 }
 
-func (c *sonosClient) Close() error {
+func (c *sonosClient) Close() {
 	c.pollTicker.Stop()
 	c.pollDoneChan <- true
-	return nil
 }

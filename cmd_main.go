@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-type monitorState int
+type MonitorState int
 
 const (
-	Starting monitorState = iota
+	Starting MonitorState = iota
 	Quiet
 	LoudSonosWasNotPlaying
 	LoudSonosWasPlaying
@@ -31,6 +31,7 @@ type RunMonitorArgs struct {
 	dbFilterRange        string
 	verbose              bool
 	extraSeekBackSeconds int
+	metricsConfig        MetricsConfig
 }
 
 func runMonitor(args RunMonitorArgs) error {
@@ -77,6 +78,11 @@ func runMonitor(args RunMonitorArgs) error {
 		}
 	}
 
+	metrics, err := StartMetricsReporter(args.metricsConfig, args.verbose)
+	if err != nil {
+		return fmt.Errorf("starting metrics failed: %w", err)
+	}
+
 	state := Starting
 
 	samples := int(math.Round(float64((time.Duration(args.thresholdSeconds) * time.Second) / args.samplingInterval)))
@@ -89,19 +95,19 @@ func runMonitor(args RunMonitorArgs) error {
 	}
 
 	const sonosPollInterval = 1 * time.Second
-	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, args.verbose)
+	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, args.verbose)
 	if err != nil {
 		return err
 	}
 
-	log.Println("starting main control loop")
+	log.Println("starting main mointor/control loop")
 	ticker := time.NewTicker(args.samplingInterval)
 	done := make(chan bool)
 	go func() {
 		for {
 			select {
 			case <-done:
-				log.Println("exiting main control loop")
+				log.Println("exiting main mointor/control loop")
 				return
 			case t := <-ticker.C:
 				if !monitor.Ready() {
@@ -155,6 +161,9 @@ func runMonitor(args RunMonitorArgs) error {
 						state = Quiet
 					}
 				}
+
+				metrics.ReportNoiseMonitorState(state)
+				metrics.ReportAverageNoiseLevel(noiseLevelDb)
 			}
 		}
 	}()
