@@ -143,7 +143,7 @@ func (m *metricsReporter) Flush() {
 			statNoiseMonitorState,
 			map[string]string{tagDeviceName: m.deviceName},
 			map[string]interface{}{
-				"state_N": m.currentNoiseMonitorState,
+				"state_NUM": int(m.currentNoiseMonitorState),
 			},
 			atTime,
 		))
