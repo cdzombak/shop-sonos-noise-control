@@ -46,9 +46,12 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 			})
 		},
 	)
-	if err := monitor.adcBot.Start(); err != nil {
-		return nil, errors.Wrap(err, "failed to start ADC Gobot work loop")
-	}
+	go func() {
+		if err := monitor.adcBot.Start(); err != nil {
+			// return nil, errors.Wrap(err, "failed to start ADC Gobot work loop")
+			log.Fatalf("failed to start ADC Gobot work loop: %s", err)
+		}
+	}()
 
 	return monitor, nil
 }
