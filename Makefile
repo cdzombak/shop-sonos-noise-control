@@ -20,7 +20,7 @@ lint: ## Lint all .go files
 	golangci-lint run *.go
 
 .PHONY: build
-build: lint ## Build (for the current platform & architecture) to ./out
+build: ## Build (for the current platform & architecture) to ./out
 	mkdir -p out
 	go build -ldflags="-X main.version=${VERSION}" -o ./out/${BIN_NAME} .
 
@@ -31,19 +31,19 @@ build: lint ## Build (for the current platform & architecture) to ./out
 #
 # See also: https://github.com/golang/go/wiki/GoArm
 .PHONY: build-rpi
-build-rpi: lint ## Build (for the Raspberry Pi) to ./out/rpi
+build-rpi: ## Build (for Raspberry Pi 2+, running a 32-bit OS) to ./out/rpi
 	mkdir -p out/rpi
 	env GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-X main.version=${VERSION}" -o ./out/rpi/${BIN_NAME} .
 
 .PHONY: install
-install: ## Install from ./out to /usr/local/bin, without linting (run with sudo)
+install: build ## Build & install from ./out to /usr/local/bin (run with sudo)
 	mkdir -p /usr/local/bin
 	cp ./out/${BIN_NAME} /usr/local/bin
 	chown root:root /usr/local/bin/${BIN_NAME}
 	chmod +x /usr/local/bin/${BIN_NAME}
 
 .PHONY: install-rpi
-install-rpi: ## Install from ./out/rpi to /usr/local/bin, without linting (run with sudo)
+install-rpi: build-rpi ## Build & install from ./out/rpi to /usr/local/bin (run with sudo)
 	mkdir -p /usr/local/bin
 	cp ./out/rpi/${BIN_NAME} /usr/local/bin
 	chown root:root /usr/local/bin/${BIN_NAME}
