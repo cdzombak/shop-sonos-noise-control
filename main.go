@@ -51,7 +51,6 @@ func main() {
 			log.Println(err)
 			os.Exit(ExitError)
 		}
-		os.Exit(ExitSuccess)
 	}
 
 	if *runTestSonos {
@@ -59,21 +58,22 @@ func main() {
 			log.Println(err)
 			os.Exit(ExitError)
 		}
-		os.Exit(ExitSuccess)
 	}
 
-	if err := runMonitor(RunMonitorArgs{
-		samplingInterval:     samplingInterval,
-		thresholdDb:          *thresholdDb,
-		thresholdSeconds:     *thresholdSeconds,
-		iface:                *ifaceName,
-		targetSonosId:        *targetSonosId,
-		verbose:              *verbose,
-		dbFilterRange:        *dbFilterRange,
-		extraSeekBackSeconds: *extraSeekBackSeconds,
-	}); err != nil {
-		log.Println(err)
-		os.Exit(ExitError)
+	if !*runDiscovery && !*runTestSonos {
+		if err := runMonitor(RunMonitorArgs{
+			samplingInterval:     samplingInterval,
+			thresholdDb:          *thresholdDb,
+			thresholdSeconds:     *thresholdSeconds,
+			iface:                *ifaceName,
+			targetSonosId:        *targetSonosId,
+			verbose:              *verbose,
+			dbFilterRange:        *dbFilterRange,
+			extraSeekBackSeconds: *extraSeekBackSeconds,
+		}); err != nil {
+			log.Println(err)
+			os.Exit(ExitError)
+		}
 	}
 
 	os.Exit(ExitSuccess)
