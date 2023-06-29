@@ -22,6 +22,8 @@ func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, v
 		lastPlaybackSpeed: "1",
 	}
 
+	log.Println("starting Sonos client")
+
 	if err := client.sonosConnect(iface, targetSonosId, verbose); err != nil {
 		return nil, err
 	}
@@ -32,7 +34,7 @@ func StartSonosClient(iface, targetSonosId string, pollInterval time.Duration, v
 		for {
 			select {
 			case <-client.pollDoneChan:
-				log.Println("exiting Sonos loop")
+				log.Println("exiting Sonos client loop")
 				return
 			case t := <-client.pollTicker.C:
 				var info *upnp.TransportInfo

@@ -94,13 +94,14 @@ func runMonitor(args RunMonitorArgs) error {
 		return err
 	}
 
+	log.Println("starting main control loop")
 	ticker := time.NewTicker(args.samplingInterval)
 	done := make(chan bool)
 	go func() {
 		for {
 			select {
 			case <-done:
-				log.Println("exiting monitor loop")
+				log.Println("exiting main control loop")
 				return
 			case t := <-ticker.C:
 				if !monitor.Ready() {
@@ -122,7 +123,7 @@ func runMonitor(args RunMonitorArgs) error {
 				case Quiet:
 					if noiseLevelDb >= args.thresholdDb {
 						if sonos.IsPlaying() {
-							go log.Printf("[monitor] tick %s: noise level %.1f dB is above threshold; pausing Sonos", t, noiseLevelDb)
+							go log.Printf("[monitor] noise level %.1f dB is above threshold; pausing Sonos", noiseLevelDb)
 							state = LoudSonosWasPlaying
 							go func() {
 								if err := sonos.Pause(); err != nil {
@@ -130,13 +131,13 @@ func runMonitor(args RunMonitorArgs) error {
 								}
 							}()
 						} else {
-							go log.Printf("[monitor] tick %s: noise level %.1f dB is above threshold; Sonos is not playing", t, noiseLevelDb)
+							go log.Printf("[monitor] noise level %.1f dB is above threshold; Sonos is not playing", noiseLevelDb)
 							state = LoudSonosWasNotPlaying
 						}
 					}
 				case LoudSonosWasPlaying:
 					if noiseLevelDb < args.thresholdDb {
-						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; resuming Sonos", t, noiseLevelDb)
+						go log.Printf("[monitor] noise level %.1f dB fell below threshold; resuming Sonos", noiseLevelDb)
 						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
@@ -150,7 +151,7 @@ func runMonitor(args RunMonitorArgs) error {
 					}
 				case LoudSonosWasNotPlaying:
 					if noiseLevelDb < args.thresholdDb {
-						go log.Printf("[monitor] tick %s: noise level %.1f dB fell below threshold; Sonos was not playing", t, noiseLevelDb)
+						go log.Printf("[monitor] noise level %.1f dB fell below threshold; Sonos was not playing", noiseLevelDb)
 						state = Quiet
 					}
 				}
