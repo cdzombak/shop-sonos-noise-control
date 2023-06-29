@@ -78,7 +78,9 @@ func runMonitor(args RunMonitorArgs) error {
 		}
 	}
 
-	metrics, err := StartMetricsReporter(args.metricsConfig, args.verbose)
+	asyncErrorEscalator := NewAsyncErrorEscalator()
+
+	metrics, err := StartMetricsReporter(args.metricsConfig, asyncErrorEscalator, args.verbose)
 	if err != nil {
 		return fmt.Errorf("starting metrics failed: %w", err)
 	}
@@ -89,13 +91,19 @@ func runMonitor(args RunMonitorArgs) error {
 	log.Printf("monitoring a window of %d seconds with sampling interval of %d ms\n", args.thresholdSeconds, args.samplingInterval.Milliseconds())
 	log.Printf("using a moving average of %d samples\n", samples)
 
-	monitor, err := StartNoiseLevelMonitor(samples, args.samplingInterval, minDb, maxDb)
+	monitor, err := StartNoiseLevelMonitor(samples, args.samplingInterval, minDb, maxDb, asyncErrorEscalator)
 	if err != nil {
 		return err
 	}
 
 	const sonosPollInterval = 1 * time.Second
-	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, args.verbose)
+	sonosCallErrChan := asyncErrorEscalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+		ErrorCount: 6,
+		TimeWindow: 1 * time.Minute,
+		Name:       "sonos error >= every 10s",
+		Log:        true,
+	})
+	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, sonosCallErrChan, args.verbose)
 	if err != nil {
 		return err
 	}
@@ -133,7 +141,7 @@ func runMonitor(args RunMonitorArgs) error {
 							state = LoudSonosWasPlaying
 							go func() {
 								if err := sonos.Pause(); err != nil {
-									log.Printf("[monitor] tick %s: failed to pause Sonos: %s", t, err)
+									sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to pause Sonos: %w", t, err)
 								}
 							}()
 						} else {
@@ -147,10 +155,10 @@ func runMonitor(args RunMonitorArgs) error {
 						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
-								log.Printf("[monitor] tick %s: failed to seek Sonos %d seconds: %s", t, seekSeconds, err)
+								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to seek Sonos %d seconds: %w", t, err)
 							}
 							if err := sonos.Play(sonos.LastPlaybackSpeed()); err != nil {
-								log.Printf("[monitor] tick %s: failed to resume Sonos: %s", t, err)
+								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to resume Sonos: %w", t, err)
 							}
 						}()
 						state = Quiet
@@ -168,11 +176,20 @@ func runMonitor(args RunMonitorArgs) error {
 		}
 	}()
 
-	exitChan := make(chan os.Signal, 1)
-	signal.Notify(exitChan, os.Interrupt, syscall.SIGTERM)
-	<-exitChan
-	ticker.Stop()
-	_ = monitor.Close()
-	done <- true
-	return nil
+	shutdown := func() {
+		ticker.Stop()
+		_ = monitor.Close()
+		done <- true
+	}
+	defer shutdown()
+
+	exitSignalChan := make(chan os.Signal, 1)
+	signal.Notify(exitSignalChan, os.Interrupt, syscall.SIGTERM)
+	select {
+	case sig := <-exitSignalChan:
+		log.Printf("received signal %s; exiting", sig)
+		return nil
+	case err := <-asyncErrorEscalator.EscalationChannel():
+		return err
+	}
 }

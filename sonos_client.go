@@ -16,7 +16,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duration, metrics MetricsReporter, verbose bool) (SonosClient, error) {
+func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duration, metrics MetricsReporter, errChan chan error, verbose bool) (SonosClient, error) {
 	client := &sonosClient{
 		isPlaying:         false,
 		lastPlaybackSpeed: "1",
@@ -48,12 +48,14 @@ func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duratio
 						}
 						return err
 					},
-					retry.Attempts(10),
+					retry.Attempts(5),
 					retry.Delay(500*time.Millisecond),
 					retry.MaxDelay(5*time.Second),
 				); err != nil {
-					log.Fatalf("GetTransportInfo failed after 10 attempts: %s", err)
+					errChan <- fmt.Errorf("GetTransportInfo failed after 5 attempts: %w", err)
+					continue
 				}
+
 				isPlaying := info.CurrentTransportState == upnp.State_PLAYING
 				client.playbackStateMutex.Lock()
 				client.isPlaying = isPlaying

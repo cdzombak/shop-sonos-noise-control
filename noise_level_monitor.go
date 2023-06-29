@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"gobot.io/x/gobot/platforms/raspi"
 )
 
-func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, maxDb float64) (NoiseLevelMonitor, error) {
+func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, maxDb float64, escalator AsyncErrorEscalator) (NoiseLevelMonitor, error) {
 	monitor := &noiseLevelMonitor{
 		samplingInterval: samplingInterval,
 		average:          ma.Concurrent(ma.New(samples)),
@@ -29,6 +30,13 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 	}
 	adc.DefaultGain = gain
 
+	adcReadFailureChan := escalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+		ErrorCount: 60,
+		TimeWindow: 30 * time.Second,
+		Name:       "ADC read failure rate >= 50%",
+		Log:        true,
+	})
+
 	monitor.adcBot = gobot.NewRobot("ads1015bot",
 		[]gobot.Connection{rpiAdaptor},
 		[]gobot.Device{adc},
@@ -36,20 +44,23 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 			gobot.Every(samplingInterval, func() {
 				v, err := adc.ReadDifferenceWithDefaults(0)
 				if err != nil {
-					// TODO(cdzombak): error handling from within the work loop could be improved
-					log.Fatalf("failed to read ADC: %s", err)
+					adcReadFailureChan <- fmt.Errorf("failed to read ADC: %w", err)
+					return
 				}
 				db := v * 100
 				if minDb < db && db < maxDb {
 					monitor.average.Add(db)
+				} else {
+					adcReadFailureChan <- fmt.Errorf("read ADC value out of dB filter range: %f", db)
+					return
 				}
 			})
 		},
 	)
 	go func() {
 		if err := monitor.adcBot.Start(); err != nil {
-			// return nil, errors.Wrap(err, "failed to start ADC Gobot work loop")
-			log.Fatalf("failed to start ADC Gobot work loop: %s", err)
+			adcStartFailureChan := escalator.RegisterPolicy(&ImmediateEscalationPolicy{Name: "ADC Gobot failure"})
+			adcStartFailureChan <- fmt.Errorf("ADC Gobot work loop failed: %w", err)
 		}
 	}()
 

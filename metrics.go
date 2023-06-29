@@ -46,7 +46,7 @@ type MetricsConfig struct {
 	InfluxPassword string
 }
 
-func StartMetricsReporter(config MetricsConfig, verbose bool) (MetricsReporter, error) {
+func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, verbose bool) (MetricsReporter, error) {
 	metrics := &metricsReporter{
 		enabled:                    config.Enabled,
 		bucket:                     config.InfluxBucket,
@@ -82,6 +82,12 @@ func StartMetricsReporter(config MetricsConfig, verbose bool) (MetricsReporter, 
 
 	log.Println("starting metrics loop")
 
+	metrics.influxFlushErrChan = escalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+		ErrorCount: 150,
+		TimeWindow: 10 * time.Minute,
+		Name:       ">= 50% Influx writes failed over 10m",
+		Log:        true,
+	})
 	metrics.flushTicker = time.NewTicker(reportingInterval)
 	metrics.flushDoneChan = make(chan bool)
 	go func() {
@@ -108,8 +114,9 @@ type metricsReporter struct {
 	bucket     string
 	deviceName string
 
-	flushTicker   *time.Ticker
-	flushDoneChan chan bool
+	flushTicker        *time.Ticker
+	flushDoneChan      chan bool
+	influxFlushErrChan chan error
 
 	// buffers:
 	bufferLock                 sync.Mutex
@@ -177,8 +184,7 @@ func (m *metricsReporter) Flush() {
 		},
 		retry.Attempts(influxRetries),
 	); err != nil {
-		// TODO(cdzombak): apply "log and exit if 51% fail for 10m" error policy here
-		log.Printf("failed to write metrics to influx: %s", err)
+		m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
 	}
 }
 
