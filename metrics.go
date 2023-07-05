@@ -10,8 +10,8 @@ import (
 
 	"github.com/avast/retry-go"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
-	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
+	influxdb2api "github.com/influxdata/influxdb-client-go/v2/api"
+	influxdb2write "github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
 const (
@@ -114,7 +114,7 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 type metricsReporter struct {
 	enabled      bool
 	influx       influxdb2.Client
-	influxWriter influxdb2_api.WriteAPIBlocking
+	influxWriter influxdb2api.WriteAPIBlocking
 	bucket       string
 	deviceName   string
 
@@ -137,7 +137,7 @@ func (m *metricsReporter) Flush() {
 	m.bufferLock.Lock()
 	atTime := time.Now()
 
-	var points []*influxdb2_write.Point
+	var points []*influxdb2write.Point
 
 	if m.currentNoiseMonitorState != Starting {
 		points = append(points, influxdb2.NewPoint(
