@@ -155,7 +155,7 @@ func runMonitor(args RunMonitorArgs) error {
 						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
-								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to seek Sonos %d seconds: %w", t, err)
+								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to seek Sonos %d seconds: %w", t, seekSeconds, err)
 							}
 							if err := sonos.Play(sonos.LastPlaybackSpeed()); err != nil {
 								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to resume Sonos: %w", t, err)
