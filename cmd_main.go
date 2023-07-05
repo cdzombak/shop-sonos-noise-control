@@ -171,7 +171,7 @@ func runMonitor(args RunMonitorArgs) error {
 				}
 
 				metrics.ReportNoiseMonitorState(state)
-				metrics.ReportAverageNoiseLevel(noiseLevelDb)
+				metrics.ReportAverageNoiseLevelImmediate(noiseLevelDb)
 			}
 		}
 	}()

@@ -10,19 +10,22 @@ import (
 
 	"github.com/avast/retry-go"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api/write"
+	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
+	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
 const (
-	reportingInterval = 2 * time.Second
-	influxTimeout     = 2 * time.Second
-	influxRetries     = 3
+	reportingInterval       = 2 * time.Second
+	influxTimeout           = 2 * time.Second
+	influxImmediateTimeout  = 1 * time.Second
+	influxAttempts          = 3
+	influxImmediateAttempts = 2
 
 	tagDeviceName = "device_name"
 
 	statAverageNoiseLevel   = "moving_average_noise_level"
-	statSonosPlayState      = "sonos_play_state"
 	statNoiseMonitorState   = "noise_monitor_state"
+	statSonosPlayState      = "sonos_play_state"
 	statSonosCallErrorCount = "sonos_call_error_count"
 )
 
@@ -30,7 +33,7 @@ type MetricsReporter interface {
 	Flush()
 	Close()
 
-	ReportAverageNoiseLevel(db float64)
+	ReportAverageNoiseLevelImmediate(db float64)
 	ReportSonosPlayState(playing bool)
 	ReportNoiseMonitorState(state MonitorState)
 	ReportSonosCallError()
@@ -51,7 +54,6 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 		enabled:                    config.Enabled,
 		bucket:                     config.InfluxBucket,
 		deviceName:                 config.DeviceName,
-		currentAverageNoiseLevel:   0,
 		currentSonosPlayState:      false,
 		currentNoiseMonitorState:   0,
 		currentSonosCallErrorCount: 0,
@@ -62,13 +64,14 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 	}
 	if config.InfluxUrl == "" || config.InfluxBucket == "" || config.DeviceName == "" {
 		//goland:noinspection GoErrorStringFormat
-		return nil, errors.New("Influx URL, bucket and, device name must be set")
+		return nil, errors.New("Influx URL, bucket, and device name must be set")
 	}
 	authString := ""
 	if config.InfluxUsername != "" || config.InfluxPassword != "" {
 		authString = fmt.Sprintf("%s:%s", config.InfluxUsername, config.InfluxPassword)
 	}
 	metrics.influx = influxdb2.NewClient(config.InfluxUrl, authString)
+	metrics.influxWriter = metrics.influx.WriteAPIBlocking("", metrics.bucket)
 
 	ctx, cancel := context.WithTimeout(context.Background(), influxTimeout)
 	defer cancel()
@@ -109,10 +112,11 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 }
 
 type metricsReporter struct {
-	enabled    bool
-	influx     influxdb2.Client
-	bucket     string
-	deviceName string
+	enabled      bool
+	influx       influxdb2.Client
+	influxWriter influxdb2_api.WriteAPIBlocking
+	bucket       string
+	deviceName   string
 
 	flushTicker        *time.Ticker
 	flushDoneChan      chan bool
@@ -120,7 +124,6 @@ type metricsReporter struct {
 
 	// buffers:
 	bufferLock                 sync.Mutex
-	currentAverageNoiseLevel   float64
 	currentSonosPlayState      bool
 	currentNoiseMonitorState   MonitorState
 	currentSonosCallErrorCount int
@@ -131,21 +134,12 @@ func (m *metricsReporter) Flush() {
 		return
 	}
 
-	influx := m.influx.WriteAPIBlocking("", m.bucket)
 	m.bufferLock.Lock()
 	atTime := time.Now()
 
-	var points []*write.Point
+	var points []*influxdb2_write.Point
 
 	if m.currentNoiseMonitorState != Starting {
-		points = append(points, influxdb2.NewPoint(
-			statAverageNoiseLevel,
-			map[string]string{tagDeviceName: m.deviceName},
-			map[string]interface{}{
-				"dB": m.currentAverageNoiseLevel,
-			},
-			atTime,
-		))
 		points = append(points, influxdb2.NewPoint(
 			statNoiseMonitorState,
 			map[string]string{tagDeviceName: m.deviceName},
@@ -176,16 +170,18 @@ func (m *metricsReporter) Flush() {
 	m.currentSonosCallErrorCount = 0
 	m.bufferLock.Unlock()
 
-	if err := retry.Do(
-		func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), influxTimeout)
-			defer cancel()
-			return influx.WritePoint(ctx, points...)
-		},
-		retry.Attempts(influxRetries),
-	); err != nil {
-		m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
-	}
+	go func() {
+		if err := retry.Do(
+			func() error {
+				ctx, cancel := context.WithTimeout(context.Background(), influxTimeout)
+				defer cancel()
+				return m.influxWriter.WritePoint(ctx, points...)
+			},
+			retry.Attempts(influxAttempts),
+		); err != nil {
+			m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
+		}
+	}()
 }
 
 func (m *metricsReporter) Close() {
@@ -197,14 +193,36 @@ func (m *metricsReporter) Close() {
 	m.flushDoneChan <- true
 }
 
-func (m *metricsReporter) ReportAverageNoiseLevel(db float64) {
+func (m *metricsReporter) ReportAverageNoiseLevelImmediate(db float64) {
 	if !m.enabled {
 		return
 	}
 	m.bufferLock.Lock()
-	defer m.bufferLock.Unlock()
+	currentNoiseMonitorState := m.currentNoiseMonitorState
+	m.bufferLock.Unlock()
+	if currentNoiseMonitorState == Starting {
+		return
+	}
 
-	m.currentAverageNoiseLevel = db
+	go func() {
+		if err := retry.Do(
+			func() error {
+				ctx, cancel := context.WithTimeout(context.Background(), influxImmediateTimeout)
+				defer cancel()
+				return m.influxWriter.WritePoint(ctx, influxdb2.NewPoint(
+					statAverageNoiseLevel,
+					map[string]string{tagDeviceName: m.deviceName},
+					map[string]interface{}{
+						"dB": db,
+					},
+					time.Now(),
+				))
+			},
+			retry.Attempts(influxImmediateAttempts),
+		); err != nil {
+			m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
+		}
+	}()
 }
 
 func (m *metricsReporter) ReportSonosPlayState(playing bool) {
