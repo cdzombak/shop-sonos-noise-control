@@ -34,6 +34,7 @@ func main() {
 	influxBucket := flag.String("metrics-influx-bucket", "default", "InfluxDB bucket for metrics reporting")
 	influxUsername := flag.String("metrics-influx-username", "", "InfluxDB username for metrics reporting")
 	influxPassword := flag.String("metrics-influx-password", "", "InfluxDB password for metrics reporting")
+	useMedian := flag.Bool("median", false, "Use moving median instead of average")
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "shop-noise-sonos-control version %s\n", version)
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "by Chris Dzombak <https://www.github.com/cdzombak>\n\n")
@@ -85,6 +86,7 @@ func main() {
 			dbFilterRange:        *dbFilterRange,
 			extraSeekBackSeconds: *extraSeekBackSeconds,
 			metricsConfig:        metricsConfig,
+			useMedian:            *useMedian,
 		}); err != nil {
 			log.Println(err)
 			os.Exit(ExitError)

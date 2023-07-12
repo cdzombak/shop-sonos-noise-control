@@ -32,6 +32,7 @@ type RunMonitorArgs struct {
 	verbose              bool
 	extraSeekBackSeconds int
 	metricsConfig        MetricsConfig
+	useMedian            bool
 }
 
 func runMonitor(args RunMonitorArgs) error {
@@ -109,6 +110,11 @@ func runMonitor(args RunMonitorArgs) error {
 	}
 
 	log.Println("starting main monitor/control loop")
+	if args.useMedian {
+		log.Printf("using moving median over %d seconds\n", args.thresholdSeconds)
+	} else {
+		log.Printf("using moving average over %d seconds\n", args.thresholdSeconds)
+	}
 	ticker := time.NewTicker(args.samplingInterval)
 	done := make(chan bool)
 	go func() {
@@ -126,18 +132,23 @@ func runMonitor(args RunMonitorArgs) error {
 					state = Quiet
 				}
 
-				noiseLevelDb := monitor.ReadAverage()
+				averageDb := monitor.ReadAverage()
+				medianDb := monitor.ReadMedian()
 				if args.verbose {
-					go log.Printf("[monitor] tick %s: noise level %.1f dB", t, noiseLevelDb)
+					go log.Printf("[monitor] tick %s: noise level average %.1f dB; median %.1f dB", t, averageDb, medianDb)
+				}
+				comparisonDb := averageDb
+				if args.useMedian {
+					comparisonDb = medianDb
 				}
 
 				switch state {
 				case Starting:
 					panic("this case should not be reachable")
 				case Quiet:
-					if noiseLevelDb >= args.thresholdDb {
+					if comparisonDb >= args.thresholdDb {
 						if sonos.IsPlaying() {
-							go log.Printf("[monitor] noise level %.1f dB is above threshold; pausing Sonos", noiseLevelDb)
+							go log.Printf("[monitor] noise level %.1f dB is above threshold; pausing Sonos", comparisonDb)
 							state = LoudSonosWasPlaying
 							go func() {
 								if err := sonos.Pause(); err != nil {
@@ -145,13 +156,13 @@ func runMonitor(args RunMonitorArgs) error {
 								}
 							}()
 						} else {
-							go log.Printf("[monitor] noise level %.1f dB is above threshold; Sonos is not playing", noiseLevelDb)
+							go log.Printf("[monitor] noise level %.1f dB is above threshold; Sonos is not playing", comparisonDb)
 							state = LoudSonosWasNotPlaying
 						}
 					}
 				case LoudSonosWasPlaying:
-					if noiseLevelDb < args.thresholdDb {
-						go log.Printf("[monitor] noise level %.1f dB fell below threshold; resuming Sonos", noiseLevelDb)
+					if comparisonDb < args.thresholdDb {
+						go log.Printf("[monitor] noise level %.1f dB fell below threshold; resuming Sonos", comparisonDb)
 						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
@@ -164,14 +175,14 @@ func runMonitor(args RunMonitorArgs) error {
 						state = Quiet
 					}
 				case LoudSonosWasNotPlaying:
-					if noiseLevelDb < args.thresholdDb {
-						go log.Printf("[monitor] noise level %.1f dB fell below threshold; Sonos was not playing", noiseLevelDb)
+					if comparisonDb < args.thresholdDb {
+						go log.Printf("[monitor] noise level %.1f dB fell below threshold; Sonos was not playing", comparisonDb)
 						state = Quiet
 					}
 				}
 
 				metrics.ReportNoiseMonitorState(state)
-				metrics.ReportAverageNoiseLevelImmediate(noiseLevelDb)
+				metrics.ReportNoiseLevelsImmediate(averageDb, medianDb)
 			}
 		}
 	}()

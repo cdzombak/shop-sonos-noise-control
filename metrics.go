@@ -23,7 +23,7 @@ const (
 
 	tagDeviceName = "device_name"
 
-	statAverageNoiseLevel   = "moving_average_noise_level"
+	statNoiseLevel          = "noise_level"
 	statNoiseMonitorState   = "noise_monitor_state"
 	statSonosPlayState      = "sonos_play_state"
 	statSonosCallErrorCount = "sonos_call_error_count"
@@ -33,7 +33,7 @@ type MetricsReporter interface {
 	Flush()
 	Close()
 
-	ReportAverageNoiseLevelImmediate(db float64)
+	ReportNoiseLevelsImmediate(averageDb, medianDb float64)
 	ReportSonosPlayState(playing bool)
 	ReportNoiseMonitorState(state MonitorState)
 	ReportSonosCallError()
@@ -193,7 +193,7 @@ func (m *metricsReporter) Close() {
 	m.flushDoneChan <- true
 }
 
-func (m *metricsReporter) ReportAverageNoiseLevelImmediate(db float64) {
+func (m *metricsReporter) ReportNoiseLevelsImmediate(average, median float64) {
 	if !m.enabled {
 		return
 	}
@@ -210,10 +210,11 @@ func (m *metricsReporter) ReportAverageNoiseLevelImmediate(db float64) {
 				ctx, cancel := context.WithTimeout(context.Background(), influxImmediateTimeout)
 				defer cancel()
 				return m.influxWriter.WritePoint(ctx, influxdb2.NewPoint(
-					statAverageNoiseLevel,
+					statNoiseLevel,
 					map[string]string{tagDeviceName: m.deviceName},
 					map[string]interface{}{
-						"dB": db,
+						"moving_avg_dB":    average,
+						"moving_median_dB": median,
 					},
 					time.Now(),
 				))

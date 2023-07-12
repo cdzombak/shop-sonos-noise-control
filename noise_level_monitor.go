@@ -69,6 +69,7 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 
 type NoiseLevelMonitor interface {
 	ReadAverage() float64
+	ReadMedian() float64
 	Ready() bool
 	Close() error
 }
@@ -82,6 +83,10 @@ type noiseLevelMonitor struct {
 
 func (m *noiseLevelMonitor) ReadAverage() float64 {
 	return m.average.Avg()
+}
+
+func (m *noiseLevelMonitor) ReadMedian() float64 {
+	return m.average.Median()
 }
 
 func (m *noiseLevelMonitor) Ready() bool {
