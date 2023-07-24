@@ -182,7 +182,7 @@ func runMonitor(args RunMonitorArgs) error {
 				}
 
 				metrics.ReportNoiseMonitorState(state)
-				metrics.ReportNoiseLevelsImmediate(averageDb, medianDb)
+				metrics.ReportNoiseLevelMeasurement(averageDb, medianDb)
 			}
 		}
 	}()

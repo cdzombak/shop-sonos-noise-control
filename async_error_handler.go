@@ -152,7 +152,7 @@ func (e *ErrorCountThresholdPolicy) Receive(err error) bool {
 		return true
 	}
 
-	if now.Sub(e.lastCompression) >= 10*e.TimeWindow {
+	if now.Sub(e.lastCompression) >= e.TimeWindow {
 		e.lastCompression = now
 		newErrors := make([]errorTimeRecord, 0, len(e.errors))
 		for _, errRecord := range e.errors {

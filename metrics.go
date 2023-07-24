@@ -15,11 +15,10 @@ import (
 )
 
 const (
-	reportingInterval       = 2 * time.Second
-	influxTimeout           = 2 * time.Second
-	influxImmediateTimeout  = 1 * time.Second
-	influxAttempts          = 3
-	influxImmediateAttempts = 2
+	reportingInterval   = 2 * time.Second
+	influxTimeout       = 3 * time.Second
+	influxAttempts      = 2
+	influxMaxRetryDelay = 500 * time.Millisecond
 
 	tagDeviceName = "device_name"
 
@@ -33,7 +32,7 @@ type MetricsReporter interface {
 	Flush()
 	Close()
 
-	ReportNoiseLevelsImmediate(averageDb, medianDb float64)
+	ReportNoiseLevelMeasurement(averageDb, medianDb float64)
 	ReportSonosPlayState(playing bool)
 	ReportNoiseMonitorState(state MonitorState)
 	ReportSonosCallError()
@@ -87,8 +86,8 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 
 	metrics.influxFlushErrChan = escalator.RegisterPolicy(&ErrorCountThresholdPolicy{
 		ErrorCount: 150,
-		TimeWindow: 10 * time.Minute,
-		Name:       ">= 50% Influx writes failed over 10m",
+		TimeWindow: 5 * time.Minute,
+		Name:       ">= 50% Influx writes failed over 5m",
 		Log:        true,
 	})
 	metrics.flushTicker = time.NewTicker(reportingInterval)
@@ -127,6 +126,7 @@ type metricsReporter struct {
 	currentSonosPlayState      bool
 	currentNoiseMonitorState   MonitorState
 	currentSonosCallErrorCount int
+	currentNoiseLevelPoints    []*influxdb2write.Point
 }
 
 func (m *metricsReporter) Flush() {
@@ -135,29 +135,25 @@ func (m *metricsReporter) Flush() {
 	}
 
 	m.bufferLock.Lock()
+
 	atTime := time.Now()
-
-	var points []*influxdb2write.Point
-
-	if m.currentNoiseMonitorState != Starting {
-		points = append(points, influxdb2.NewPoint(
-			statNoiseMonitorState,
-			map[string]string{tagDeviceName: m.deviceName},
-			map[string]interface{}{
-				"state_NUM": int(m.currentNoiseMonitorState),
-			},
-			atTime,
-		))
-		points = append(points, influxdb2.NewPoint(
-			statSonosPlayState,
-			map[string]string{tagDeviceName: m.deviceName},
-			map[string]interface{}{
-				"playing": m.currentSonosPlayState,
-			},
-			atTime,
-		))
-	}
-
+	points := m.currentNoiseLevelPoints
+	points = append(points, influxdb2.NewPoint(
+		statNoiseMonitorState,
+		map[string]string{tagDeviceName: m.deviceName},
+		map[string]interface{}{
+			"state_NUM": int(m.currentNoiseMonitorState),
+		},
+		atTime,
+	))
+	points = append(points, influxdb2.NewPoint(
+		statSonosPlayState,
+		map[string]string{tagDeviceName: m.deviceName},
+		map[string]interface{}{
+			"playing": m.currentSonosPlayState,
+		},
+		atTime,
+	))
 	points = append(points, influxdb2.NewPoint(
 		statSonosCallErrorCount,
 		map[string]string{tagDeviceName: m.deviceName},
@@ -168,6 +164,7 @@ func (m *metricsReporter) Flush() {
 	))
 
 	m.currentSonosCallErrorCount = 0
+	m.currentNoiseLevelPoints = nil
 	m.bufferLock.Unlock()
 
 	go func() {
@@ -178,6 +175,7 @@ func (m *metricsReporter) Flush() {
 				return m.influxWriter.WritePoint(ctx, points...)
 			},
 			retry.Attempts(influxAttempts),
+			retry.MaxDelay(influxMaxRetryDelay),
 		); err != nil {
 			m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
 		}
@@ -193,37 +191,26 @@ func (m *metricsReporter) Close() {
 	m.flushDoneChan <- true
 }
 
-func (m *metricsReporter) ReportNoiseLevelsImmediate(average, median float64) {
+func (m *metricsReporter) ReportNoiseLevelMeasurement(average, median float64) {
 	if !m.enabled {
 		return
 	}
 	m.bufferLock.Lock()
-	currentNoiseMonitorState := m.currentNoiseMonitorState
-	m.bufferLock.Unlock()
-	if currentNoiseMonitorState == Starting {
+	defer m.bufferLock.Unlock()
+
+	if m.currentNoiseMonitorState == Starting {
 		return
 	}
 
-	go func() {
-		if err := retry.Do(
-			func() error {
-				ctx, cancel := context.WithTimeout(context.Background(), influxImmediateTimeout)
-				defer cancel()
-				return m.influxWriter.WritePoint(ctx, influxdb2.NewPoint(
-					statNoiseLevel,
-					map[string]string{tagDeviceName: m.deviceName},
-					map[string]interface{}{
-						"moving_avg_dB":    average,
-						"moving_median_dB": median,
-					},
-					time.Now(),
-				))
-			},
-			retry.Attempts(influxImmediateAttempts),
-		); err != nil {
-			m.influxFlushErrChan <- fmt.Errorf("failed to write metrics to influx: %w", err)
-		}
-	}()
+	m.currentNoiseLevelPoints = append(m.currentNoiseLevelPoints, influxdb2.NewPoint(
+		statNoiseLevel,
+		map[string]string{tagDeviceName: m.deviceName},
+		map[string]interface{}{
+			"moving_avg_dB":    average,
+			"moving_median_dB": median,
+		},
+		time.Now(),
+	))
 }
 
 func (m *metricsReporter) ReportSonosPlayState(playing bool) {
