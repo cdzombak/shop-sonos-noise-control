@@ -11,6 +11,7 @@ type AsyncErrorPolicy interface {
 	Close()
 	GetDesiredBufferSize() int
 	GetName() string
+	GetUniqID() string
 	Receive(err error) bool
 }
 
@@ -29,7 +30,7 @@ type AsyncErrorEscalator interface {
 type asyncErrorEscalator struct {
 	errEscalationChan chan error
 	policiesMutex     sync.Mutex
-	policies          map[AsyncErrorPolicy]policyRecord
+	policies          map[string]policyRecord
 }
 
 func (h *asyncErrorEscalator) EscalationChannel() chan error {
@@ -37,12 +38,22 @@ func (h *asyncErrorEscalator) EscalationChannel() chan error {
 }
 
 const (
-	defaultErrorChanBufferSize = 100
+	defaultErrorChanBufferSize = 64
 )
 
 type policyRecord struct {
-	errorChannel chan error
-	closer       func()
+	closer func()
+	uid    string
+}
+
+func uidForPolicy(policy AsyncErrorPolicy) string {
+	if policy.GetUniqID() != "" {
+		return policy.GetUniqID()
+	}
+	if policy.GetName() != "" {
+		return policy.GetName()
+	}
+	panic(fmt.Sprintf("policy has no Name or UniqID: %v", policy))
 }
 
 func (h *asyncErrorEscalator) RegisterPolicy(policy AsyncErrorPolicy) chan error {
@@ -50,10 +61,11 @@ func (h *asyncErrorEscalator) RegisterPolicy(policy AsyncErrorPolicy) chan error
 	defer h.policiesMutex.Unlock()
 
 	if h.policies == nil {
-		h.policies = make(map[AsyncErrorPolicy]policyRecord)
+		h.policies = make(map[string]policyRecord)
 	}
-	if _, ok := h.policies[policy]; ok {
-		panic("policy is already registered")
+	policyUid := uidForPolicy(policy)
+	if _, ok := h.policies[policyUid]; ok {
+		panic(fmt.Sprintf("policy '%s' is already registered", policyUid))
 	}
 
 	bufSize := policy.GetDesiredBufferSize()
@@ -61,32 +73,38 @@ func (h *asyncErrorEscalator) RegisterPolicy(policy AsyncErrorPolicy) chan error
 		bufSize = defaultErrorChanBufferSize
 	}
 	errorChan := make(chan error, bufSize)
-	closerChan := make(chan bool)
+	closeChan := make(chan struct{})
 
 	go func() {
 		for {
 			select {
 			case err := <-errorChan:
-				if policy.Receive(err) {
+				go func() {
 					name := policy.GetName()
+					uid := policy.GetUniqID()
 					if name == "" {
 						name = "<unnamed>"
 					}
-					h.errEscalationChan <- fmt.Errorf("async error policy '%s' escalated: %w", name, err)
-				}
-			case <-closerChan:
+					if policy.Receive(err) {
+						if uid != "" {
+							h.errEscalationChan <- fmt.Errorf("async error policy '%s' (%s) escalated: %w", name, uid, err)
+						} else {
+							h.errEscalationChan <- fmt.Errorf("async error policy '%s' escalated: %w", name, err)
+						}
+					}
+				}()
+			case <-closeChan:
 				return
 			}
 		}
 	}()
 
-	h.policies[policy] = policyRecord{
-		errorChannel: errorChan,
+	h.policies[policyUid] = policyRecord{
+		uid: policyUid,
 		closer: func() {
-			policy.Close()
-			closerChan <- true
-			close(closerChan)
 			close(errorChan)
+			policy.Close()
+			close(closeChan)
 		},
 	}
 
@@ -97,12 +115,13 @@ func (h *asyncErrorEscalator) UnregisterPolicy(policy AsyncErrorPolicy) {
 	h.policiesMutex.Lock()
 	defer h.policiesMutex.Unlock()
 
-	if _, ok := h.policies[policy]; !ok {
-		panic("policy is not registered")
+	policyUid := uidForPolicy(policy)
+	if _, ok := h.policies[policyUid]; !ok {
+		panic(fmt.Sprintf("policy '%s' is not registered", policyUid))
 	}
 
-	h.policies[policy].closer()
-	delete(h.policies, policy)
+	h.policies[policyUid].closer()
+	delete(h.policies, policyUid)
 }
 
 type errorTimeRecord struct {
@@ -116,6 +135,7 @@ type ErrorCountThresholdPolicy struct {
 	ErrorCount int
 	TimeWindow time.Duration
 	Name       string
+	UniqID     string
 	Log        bool
 
 	lastCompression time.Time
@@ -124,53 +144,66 @@ type ErrorCountThresholdPolicy struct {
 }
 
 func (e *ErrorCountThresholdPolicy) Close()                    {}
-func (e *ErrorCountThresholdPolicy) GetDesiredBufferSize() int { return 100 }
+func (e *ErrorCountThresholdPolicy) GetDesiredBufferSize() int { return e.ErrorCount * 2 }
 func (e *ErrorCountThresholdPolicy) GetName() string           { return e.Name }
+func (e *ErrorCountThresholdPolicy) GetUniqID() string         { return e.UniqID }
 
 func (e *ErrorCountThresholdPolicy) Receive(err error) bool {
 	if e.Log {
-		go log.Println(err.Error())
+		log.Println(err.Error())
 	}
 
+	now := time.Now()
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	now := time.Now()
 	e.errors = append(e.errors, errorTimeRecord{
 		At:  now,
 		Err: err,
 	})
 
 	errorsInWindow := 0
+	performCompress := now.Sub(e.lastCompression) > e.TimeWindow
+	var compressedErrors []errorTimeRecord
+	if performCompress {
+		newSliceSize := len(e.errors) / 2
+		if newSliceSize <= 1 {
+			newSliceSize = 2
+		}
+		compressedErrors = make([]errorTimeRecord, 0, newSliceSize)
+	}
+
 	for _, errRecord := range e.errors {
 		if now.Sub(errRecord.At) <= e.TimeWindow {
 			errorsInWindow++
-		}
-	}
-
-	if errorsInWindow >= e.ErrorCount {
-		return true
-	}
-
-	if now.Sub(e.lastCompression) >= e.TimeWindow {
-		e.lastCompression = now
-		newErrors := make([]errorTimeRecord, 0, len(e.errors))
-		for _, errRecord := range e.errors {
-			if now.Sub(errRecord.At) <= e.TimeWindow {
-				newErrors = append(newErrors, errRecord)
+			if performCompress {
+				compressedErrors = append(compressedErrors, errRecord)
 			}
 		}
-		e.errors = newErrors
 	}
 
-	return false
+	if performCompress {
+		e.lastCompression = now
+		e.errors = compressedErrors
+	}
+
+	return errorsInWindow >= e.ErrorCount
 }
 
 type ImmediateEscalationPolicy struct {
-	Name string
+	Name   string
+	UniqID string
+	Log    bool
 }
 
 func (i *ImmediateEscalationPolicy) Close()                    {}
 func (i *ImmediateEscalationPolicy) GetDesiredBufferSize() int { return 1 }
 func (i *ImmediateEscalationPolicy) GetName() string           { return i.Name }
-func (i *ImmediateEscalationPolicy) Receive(_ error) bool      { return true }
+func (i *ImmediateEscalationPolicy) GetUniqID() string         { return i.UniqID }
+
+func (i *ImmediateEscalationPolicy) Receive(err error) bool {
+	if i.Log {
+		log.Println(err.Error())
+	}
+	return true
+}
