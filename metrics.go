@@ -102,7 +102,7 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 				if verbose {
 					log.Printf("[metrics] flushing metrics at tick %s", t)
 				}
-				metrics.Flush()
+				go metrics.Flush()
 			}
 		}
 	}()
