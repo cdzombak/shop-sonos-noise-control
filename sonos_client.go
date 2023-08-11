@@ -48,9 +48,9 @@ func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duratio
 						}
 						return err
 					},
-					retry.Attempts(3),
-					retry.Delay(500*time.Millisecond),
-					retry.MaxDelay(5*time.Second),
+					retry.Attempts(2),
+					retry.Delay(100*time.Millisecond),
+					retry.MaxDelay(1*time.Second),
 				); err != nil {
 					errChan <- fmt.Errorf("GetTransportInfo failed after 3 attempts: %w", err)
 					continue
