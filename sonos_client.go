@@ -42,7 +42,7 @@ func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duratio
 				if err := retry.Do(
 					func() error {
 						var err error
-						info, err = client.sonos.GetTransportInfo(0)
+						info, err = getTransportInfoWithTimeout(1*time.Second, client.sonos, 0)
 						if err != nil {
 							metrics.ReportSonosCallError()
 						}
@@ -163,7 +163,9 @@ func (c *sonosClient) LastPlaybackSpeed() string {
 func (c *sonosClient) Pause() error {
 	if err := retry.Do(
 		func() error {
-			err := c.sonos.Pause(0)
+			err := runWithTimeout("pause", 1*time.Second, func() error {
+				return c.sonos.Pause(0)
+			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
 			}
@@ -188,7 +190,9 @@ func (c *sonosClient) Play(speed string) error {
 
 	if err := retry.Do(
 		func() error {
-			err := c.sonos.Play(0, speed)
+			err := runWithTimeout("play", 1*time.Second, func() error {
+				return c.sonos.Play(0, speed)
+			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
 			}
@@ -218,7 +222,9 @@ func (c *sonosClient) Seek(seconds int) error {
 
 	if err := retry.Do(
 		func() error {
-			err := c.sonos.Seek(0, "TIME_DELTA", seekTimeStr)
+			err := runWithTimeout("seek", 1*time.Second, func() error {
+				return c.sonos.Seek(0, "TIME_DELTA", seekTimeStr)
+			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
 			}
@@ -236,4 +242,36 @@ func (c *sonosClient) Seek(seconds int) error {
 func (c *sonosClient) Close() {
 	c.pollTicker.Stop()
 	c.pollDoneChan <- true
+}
+
+type upnpTransportInfoResult struct {
+	retv *upnp.TransportInfo
+	err  error
+}
+
+func getTransportInfoWithTimeout(timeout time.Duration, sonos *sonos.Sonos, instanceId uint32) (*upnp.TransportInfo, error) {
+	resultCh := make(chan upnpTransportInfoResult, 1)
+	go func() {
+		retv, err := sonos.GetTransportInfo(instanceId)
+		resultCh <- upnpTransportInfoResult{retv, err}
+	}()
+	select {
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("GetTransportInfo (instanceId %d) timed out after %s", instanceId, timeout)
+	case result := <-resultCh:
+		return result.retv, result.err
+	}
+}
+
+func runWithTimeout(desc string, timeout time.Duration, f func() error) error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- f()
+	}()
+	select {
+	case <-time.After(timeout):
+		return fmt.Errorf("function ('%s') timed out after %s", desc, timeout)
+	case err := <-errCh:
+		return err
+	}
 }
