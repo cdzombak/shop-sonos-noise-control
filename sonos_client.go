@@ -204,14 +204,15 @@ func (c *sonosClient) Play(speed string) error {
 }
 
 func (c *sonosClient) Seek(seconds int) error {
-	absSeconds := int(math.Abs(float64(seconds)))
-	if absSeconds >= 60 {
-		// TODO(cdzombak): properly format seconds into HH:MM:SS, allowing arbitrary seek times
-		return errors.New("only seek times less than 60s are supported")
-	}
 	minusSign := ""
 	if seconds < 0 {
 		minusSign = "-"
+	}
+
+	absSeconds := int(math.Abs(float64(seconds)))
+	if absSeconds >= 60 {
+		log.Printf("seek requested for %d seconds; truncating to 59 seconds", seconds)
+		absSeconds = 59
 	}
 	seekTimeStr := fmt.Sprintf("%s00:00:%02d", minusSign, absSeconds)
 
