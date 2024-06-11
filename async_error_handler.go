@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+const (
+	defaultErrChanBufferSize = 32
+)
+
 type AsyncErrorPolicy interface {
 	Close()
 	GetDesiredBufferSize() int
@@ -17,7 +21,7 @@ type AsyncErrorPolicy interface {
 
 func NewAsyncErrorEscalator() AsyncErrorEscalator {
 	return &asyncErrorEscalator{
-		errEscalationChan: make(chan error),
+		errEscalationChan: make(chan error, defaultErrChanBufferSize),
 	}
 }
 
@@ -36,10 +40,6 @@ type asyncErrorEscalator struct {
 func (h *asyncErrorEscalator) EscalationChannel() chan error {
 	return h.errEscalationChan
 }
-
-const (
-	defaultErrorChanBufferSize = 64
-)
 
 type policyRecord struct {
 	closer func()
@@ -70,7 +70,7 @@ func (h *asyncErrorEscalator) RegisterPolicy(policy AsyncErrorPolicy) chan error
 
 	bufSize := policy.GetDesiredBufferSize()
 	if bufSize <= 0 {
-		bufSize = defaultErrorChanBufferSize
+		bufSize = defaultErrChanBufferSize
 	}
 	errorChan := make(chan error, bufSize)
 	closeChan := make(chan struct{})
