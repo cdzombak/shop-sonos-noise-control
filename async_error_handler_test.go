@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -159,9 +158,9 @@ func TestImmediateEscalationPolicy_Receive(t *testing.T) {
 var errCount = atomic.Int64{}
 
 func makeError() error {
-	return errors.New(fmt.Sprintf(
+	return fmt.Errorf(
 		"error %d: %s",
 		errCount.Add(1),
 		time.Now().Format(time.RFC3339Nano),
-	))
+	)
 }
