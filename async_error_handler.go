@@ -7,10 +7,14 @@ import (
 	"time"
 )
 
+// TODO(cdzombak): docs and usage examples
+// TODO(cdzombak): unidirectional channels
+
 const (
 	defaultErrChanBufferSize = 32
 )
 
+// AsyncErrorPolicy describes a policy for handling errors that occur in an asynchronous context.
 type AsyncErrorPolicy interface {
 	Close()
 	GetDesiredBufferSize() int
@@ -19,6 +23,7 @@ type AsyncErrorPolicy interface {
 	Receive(err error) bool
 }
 
+// NewAsyncErrorEscalator returns a new AsyncErrorEscalator.
 func NewAsyncErrorEscalator() AsyncErrorEscalator {
 	return &asyncErrorEscalator{
 		errEscalationChan: make(chan error, defaultErrChanBufferSize),
