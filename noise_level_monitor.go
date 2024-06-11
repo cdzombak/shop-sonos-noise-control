@@ -59,7 +59,7 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 	)
 	go func() {
 		if err := monitor.adcBot.Start(); err != nil {
-			adcStartFailureChan := escalator.RegisterPolicy(&ImmediateEscalationPolicy{Name: "ADC Gobot failure"})
+			adcStartFailureChan := escalator.RegisterPolicy(&ImmediateEscalationPolicy{Name: "ADC Gobot failure", Log: true})
 			adcStartFailureChan <- fmt.Errorf("ADC Gobot work loop failed: %w", err)
 		}
 	}()
