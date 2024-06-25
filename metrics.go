@@ -88,7 +88,7 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 		ErrorCount: 150,
 		TimeWindow: 5 * time.Minute,
 		Name:       ">= 50% Influx writes failed over 5m",
-		Log:        true,
+		LogEvery:   5,
 	})
 	metrics.flushTicker = time.NewTicker(reportingInterval)
 	metrics.flushDoneChan = make(chan bool)

@@ -102,7 +102,7 @@ func runMonitor(args RunMonitorArgs) error {
 		ErrorCount: 6,
 		TimeWindow: 1 * time.Minute,
 		Name:       "sonos error >= every 10s",
-		Log:        true,
+		LogEvery:   2,
 	})
 	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, sonosCallErrChan, args.verbose)
 	if err != nil {

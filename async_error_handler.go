@@ -141,11 +141,12 @@ type ErrorCountThresholdPolicy struct {
 	TimeWindow time.Duration
 	Name       string
 	UniqID     string
-	Log        bool
+	LogEvery   int
 
-	lastCompression time.Time
-	errors          []errorTimeRecord
-	mutex           sync.Mutex
+	lastCompression     time.Time
+	skippedSinceLastLog int
+	errors              []errorTimeRecord
+	mutex               sync.Mutex
 }
 
 func (e *ErrorCountThresholdPolicy) Close()                    {}
@@ -154,22 +155,29 @@ func (e *ErrorCountThresholdPolicy) GetName() string           { return e.Name }
 func (e *ErrorCountThresholdPolicy) GetUniqID() string         { return e.UniqID }
 
 func (e *ErrorCountThresholdPolicy) Receive(err error) bool {
-	if e.Log {
-		log.Println(err.Error())
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if e.LogEvery > 0 {
+		e.skippedSinceLastLog++
+		if e.skippedSinceLastLog >= e.LogEvery {
+			go func() {
+				log.Println(err.Error())
+			}()
+			e.skippedSinceLastLog = 0
+		}
 	}
 
 	now := time.Now()
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
+	errorsInWindow := 0
+	performCompress := now.Sub(e.lastCompression) > e.TimeWindow
+	var compressedErrors []errorTimeRecord
 
 	e.errors = append(e.errors, errorTimeRecord{
 		At:  now,
 		Err: err,
 	})
 
-	errorsInWindow := 0
-	performCompress := now.Sub(e.lastCompression) > e.TimeWindow
-	var compressedErrors []errorTimeRecord
 	if performCompress {
 		newSliceSize := len(e.errors) / 2
 		if newSliceSize <= 1 {
@@ -181,6 +189,7 @@ func (e *ErrorCountThresholdPolicy) Receive(err error) bool {
 	for _, errRecord := range e.errors {
 		if now.Sub(errRecord.At) <= e.TimeWindow {
 			errorsInWindow++
+
 			if performCompress {
 				compressedErrors = append(compressedErrors, errRecord)
 			}

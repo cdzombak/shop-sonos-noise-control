@@ -34,7 +34,7 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 		ErrorCount: 60,
 		TimeWindow: 30 * time.Second,
 		Name:       "ADC read failure rate >= 50%",
-		Log:        true,
+		LogEvery:   10,
 	})
 
 	monitor.adcBot = gobot.NewRobot("ads1015bot",
