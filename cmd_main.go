@@ -126,6 +126,7 @@ func runMonitor(args RunMonitorArgs) error {
 			case t := <-ticker.C:
 				if !monitor.Ready() {
 					go log.Printf("[monitor] tick %s: monitor is not ready", t)
+					time.Sleep(1 * time.Second)
 					continue
 				}
 				if state == Starting { // conditional immediately above continues loop if noise monitor is not ready

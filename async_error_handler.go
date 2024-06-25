@@ -161,9 +161,7 @@ func (e *ErrorCountThresholdPolicy) Receive(err error) bool {
 	if e.LogEvery > 0 {
 		e.skippedSinceLastLog++
 		if e.skippedSinceLastLog >= e.LogEvery {
-			go func() {
-				log.Println(err.Error())
-			}()
+			go log.Println(err.Error())
 			e.skippedSinceLastLog = 0
 		}
 	}
