@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cdzombak/asyncerror"
 )
 
 type MonitorState int
@@ -79,7 +81,7 @@ func runMonitor(args RunMonitorArgs) error {
 		}
 	}
 
-	asyncErrorEscalator := NewAsyncErrorEscalator()
+	asyncErrorEscalator := asyncerror.NewEscalator()
 
 	metrics, err := StartMetricsReporter(args.metricsConfig, asyncErrorEscalator, args.verbose)
 	if err != nil {
@@ -98,7 +100,7 @@ func runMonitor(args RunMonitorArgs) error {
 	}
 
 	const sonosPollInterval = 1 * time.Second
-	sonosCallErrChan := asyncErrorEscalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+	sonosCallErrChan := asyncErrorEscalator.RegisterPolicy(&asyncerror.ThresholdEscalationPolicy{
 		ErrorCount: 6,
 		TimeWindow: 1 * time.Minute,
 		Name:       "sonos error >= every 10s",

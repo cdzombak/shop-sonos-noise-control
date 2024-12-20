@@ -1,6 +1,8 @@
 module shop-noise-sonos-control
 
-go 1.20
+go 1.23
+
+toolchain go1.23.4
 
 require (
 	github.com/RobinUS2/golang-moving-average v1.0.0
@@ -8,11 +10,12 @@ require (
 	github.com/ianr0bkny/go-sonos v0.0.0-20171025003233-056585059953
 	github.com/influxdata/influxdb-client-go/v2 v2.12.3
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.10.0
 	gobot.io/x/gobot v1.16.0
 )
 
 require (
+	github.com/cdzombak/asyncerror v0.0.0-20241220181401-53d6fbd3ba6d // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/deepmap/oapi-codegen v1.8.2 // indirect
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect

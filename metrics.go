@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/cdzombak/asyncerror"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxdb2api "github.com/influxdata/influxdb-client-go/v2/api"
 	influxdb2write "github.com/influxdata/influxdb-client-go/v2/api/write"
@@ -48,7 +49,7 @@ type MetricsConfig struct {
 	InfluxPassword string
 }
 
-func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, verbose bool) (MetricsReporter, error) {
+func StartMetricsReporter(config MetricsConfig, escalator asyncerror.Escalator, verbose bool) (MetricsReporter, error) {
 	metrics := &metricsReporter{
 		enabled:                    config.Enabled,
 		bucket:                     config.InfluxBucket,
@@ -84,7 +85,7 @@ func StartMetricsReporter(config MetricsConfig, escalator AsyncErrorEscalator, v
 
 	log.Println("starting metrics loop")
 
-	metrics.influxFlushErrChan = escalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+	metrics.influxFlushErrChan = escalator.RegisterPolicy(&asyncerror.ThresholdEscalationPolicy{
 		ErrorCount: 150,
 		TimeWindow: 5 * time.Minute,
 		Name:       ">= 50% Influx writes failed over 5m",

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	ma "github.com/RobinUS2/golang-moving-average"
+	"github.com/cdzombak/asyncerror"
 	"github.com/pkg/errors"
 	"gobot.io/x/gobot"
 
@@ -13,7 +14,7 @@ import (
 	"gobot.io/x/gobot/platforms/raspi"
 )
 
-func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, maxDb float64, escalator AsyncErrorEscalator) (NoiseLevelMonitor, error) {
+func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, maxDb float64, escalator asyncerror.Escalator) (NoiseLevelMonitor, error) {
 	monitor := &noiseLevelMonitor{
 		samplingInterval: samplingInterval,
 		average:          ma.Concurrent(ma.New(samples)),
@@ -30,7 +31,7 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 	}
 	adc.DefaultGain = gain
 
-	adcReadFailureChan := escalator.RegisterPolicy(&ErrorCountThresholdPolicy{
+	adcReadFailureChan := escalator.RegisterPolicy(&asyncerror.ThresholdEscalationPolicy{
 		ErrorCount: 60,
 		TimeWindow: 30 * time.Second,
 		Name:       "ADC read failure rate >= 50%",
@@ -59,7 +60,7 @@ func StartNoiseLevelMonitor(samples int, samplingInterval time.Duration, minDb, 
 	)
 	go func() {
 		if err := monitor.adcBot.Start(); err != nil {
-			adcStartFailureChan := escalator.RegisterPolicy(&ImmediateEscalationPolicy{Name: "ADC Gobot failure", Log: true})
+			adcStartFailureChan := escalator.RegisterPolicy(&asyncerror.ImmediateEscalationPolicy{Name: "ADC Gobot failure", Log: true})
 			adcStartFailureChan <- fmt.Errorf("ADC Gobot work loop failed: %w", err)
 		}
 	}()
