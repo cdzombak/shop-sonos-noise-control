@@ -9,7 +9,6 @@ import (
 	"github.com/cdzombak/asyncerror"
 	"github.com/pkg/errors"
 	"gobot.io/x/gobot"
-
 	"gobot.io/x/gobot/drivers/i2c"
 	"gobot.io/x/gobot/platforms/raspi"
 )
