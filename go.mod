@@ -7,7 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/RobinUS2/golang-moving-average v1.0.0
 	github.com/avast/retry-go v3.0.0+incompatible
-	github.com/cdzombak/asyncerror v0.0.0-20241220181401-53d6fbd3ba6d
+	github.com/cdzombak/asyncerror v0.0.1
 	github.com/ianr0bkny/go-sonos v0.0.0-20171025003233-056585059953
 	github.com/influxdata/influxdb-client-go/v2 v2.14.0
 	github.com/pkg/errors v0.9.1

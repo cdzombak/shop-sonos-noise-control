@@ -7,8 +7,8 @@ github.com/avast/retry-go v3.0.0+incompatible h1:4SOWQ7Qs+oroOTQOYnAHqelpCO0biHS
 github.com/avast/retry-go v3.0.0+incompatible/go.mod h1:XtSnn+n/sHqQIpZ10K1qAevBhOOCWBLXXy3hyiqqBrY=
 github.com/bmatcuk/doublestar v1.1.1/go.mod h1:UD6OnuiIn0yFxxA2le/rnRU1G4RaI4UvFv1sNto9p6w=
 github.com/bmizerany/pat v0.0.0-20170815010413-6226ea591a40/go.mod h1:8rLXio+WjiTceGBHIoTvn60HIbs7Hm7bcHjyrSqYB9c=
-github.com/cdzombak/asyncerror v0.0.0-20241220181401-53d6fbd3ba6d h1:ex9ZKvo/xTMHFq/7TK/PFPF7Ccch9Etq+coEedIJ1qU=
-github.com/cdzombak/asyncerror v0.0.0-20241220181401-53d6fbd3ba6d/go.mod h1:99qE94iEB2DxkFCMEmyAfgV2A+mBTAnjtaeFtCqhYjI=
+github.com/cdzombak/asyncerror v0.0.1 h1:SP058O0MOAvzInn1F2iIa6xmazA6eDG32IYJZ3brBSE=
+github.com/cdzombak/asyncerror v0.0.1/go.mod h1:99qE94iEB2DxkFCMEmyAfgV2A+mBTAnjtaeFtCqhYjI=
 github.com/cdzombak/golang-moving-average v0.0.0-20230705193950-473b9570a2cb h1:sVQK/FG+O0MZ8o6eg4KNt0SMsF3vOm1St3r49eF4w9Y=
 github.com/cdzombak/golang-moving-average v0.0.0-20230705193950-473b9570a2cb/go.mod h1:+HZzWaIIRu/26K3VErobvHh5+UnNxIFb/g4DLPtyNww=
 github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d/go.mod h1:maD7wRr/U5Z6m/iR4s+kqSMx2CaBsrgA7czyZG/E6dU=
