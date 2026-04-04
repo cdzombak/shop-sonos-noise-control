@@ -27,6 +27,7 @@ const (
 	statNoiseMonitorState   = "noise_monitor_state"
 	statSonosPlayState      = "sonos_play_state"
 	statSonosCallErrorCount = "sonos_call_error_count"
+	statSonosConnected      = "sonos_connected"
 )
 
 type MetricsReporter interface {
@@ -37,6 +38,7 @@ type MetricsReporter interface {
 	ReportSonosPlayState(playing bool)
 	ReportNoiseMonitorState(state MonitorState)
 	ReportSonosCallError()
+	ReportSonosConnected(connected bool)
 }
 
 type MetricsConfig struct {
@@ -127,6 +129,7 @@ type metricsReporter struct {
 	currentSonosPlayState      bool
 	currentNoiseMonitorState   MonitorState
 	currentSonosCallErrorCount int
+	currentSonosConnected      bool
 	currentNoiseLevelPoints    []*influxdb2write.Point
 }
 
@@ -160,6 +163,14 @@ func (m *metricsReporter) Flush() {
 		map[string]string{tagDeviceName: m.deviceName},
 		map[string]interface{}{
 			"errors": m.currentSonosCallErrorCount,
+		},
+		atTime,
+	))
+	points = append(points, influxdb2.NewPoint(
+		statSonosConnected,
+		map[string]string{tagDeviceName: m.deviceName},
+		map[string]interface{}{
+			"connected": m.currentSonosConnected,
 		},
 		atTime,
 	))
@@ -242,4 +253,14 @@ func (m *metricsReporter) ReportSonosCallError() {
 	defer m.bufferLock.Unlock()
 
 	m.currentSonosCallErrorCount++
+}
+
+func (m *metricsReporter) ReportSonosConnected(connected bool) {
+	if !m.enabled {
+		return
+	}
+	m.bufferLock.Lock()
+	defer m.bufferLock.Unlock()
+
+	m.currentSonosConnected = connected
 }

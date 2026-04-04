@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,36 +14,53 @@ import (
 	"github.com/ianr0bkny/go-sonos"
 	"github.com/ianr0bkny/go-sonos/ssdp"
 	"github.com/ianr0bkny/go-sonos/upnp"
-	"github.com/pkg/errors"
 )
 
-func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duration, metrics MetricsReporter, errChan chan error, verbose bool) (SonosClient, error) {
+var ErrNotConnected = errors.New("Sonos device is not connected")
+
+const (
+	reconnectInterval       = 30 * time.Second
+	consecutiveFailsToDisconnect = 5
+)
+
+func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duration, metrics MetricsReporter, errChan chan error, verbose bool) SonosClient {
 	client := &sonosClient{
 		isPlaying:         false,
 		lastPlaybackSpeed: "1",
 		metrics:           metrics,
+		connected:         false,
 	}
 
 	log.Println("starting Sonos client")
 
 	if err := client.sonosConnect(ifaceName, targetSonosId, verbose); err != nil {
-		return nil, err
+		log.Printf("Sonos device not found at startup: %s; will retry every %s", err, reconnectInterval)
+	} else {
+		log.Println("Sonos device connected")
 	}
+
+	client.reconnectDoneChan = make(chan bool)
+	go client.reconnectLoop(ifaceName, targetSonosId, verbose)
 
 	client.pollTicker = time.NewTicker(pollInterval)
 	client.pollDoneChan = make(chan bool)
 	go func() {
+		consecutiveFails := 0
 		for {
 			select {
 			case <-client.pollDoneChan:
 				log.Println("exiting Sonos client loop")
 				return
 			case t := <-client.pollTicker.C:
+				if !client.IsConnected() {
+					continue
+				}
+
 				var info *upnp.TransportInfo
 				if err := retry.Do(
 					func() error {
 						var err error
-						info, err = getTransportInfoWithTimeout(1*time.Second, client.sonos, 0)
+						info, err = getTransportInfoWithTimeout(1*time.Second, client.getSonos(), 0)
 						if err != nil {
 							metrics.ReportSonosCallError()
 						}
@@ -52,10 +70,18 @@ func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duratio
 					retry.Delay(100*time.Millisecond),
 					retry.MaxDelay(1*time.Second),
 				); err != nil {
-					errChan <- fmt.Errorf("GetTransportInfo failed after 3 attempts: %w", err)
+					consecutiveFails++
+					if consecutiveFails >= consecutiveFailsToDisconnect {
+						log.Printf("Sonos device lost after %d consecutive poll failures; will attempt reconnection", consecutiveFails)
+						client.setDisconnected()
+						consecutiveFails = 0
+					} else {
+						errChan <- fmt.Errorf("GetTransportInfo failed after retries: %w", err)
+					}
 					continue
 				}
 
+				consecutiveFails = 0
 				isPlaying := info.CurrentTransportState == upnp.State_PLAYING
 				client.playbackStateMutex.Lock()
 				client.isPlaying = isPlaying
@@ -71,12 +97,13 @@ func StartSonosClient(ifaceName, targetSonosId string, pollInterval time.Duratio
 		}
 	}()
 
-	return client, nil
+	return client
 }
 
 type SonosClient interface {
-	IsPlaying() bool           // guaranteed to return fast; updated roughly every pollInterval
-	LastPlaybackSpeed() string // // guaranteed to return fast; updated roughly every pollInterval
+	IsPlaying() bool
+	IsConnected() bool
+	LastPlaybackSpeed() string
 
 	Pause() error
 	Play(speed string) error
@@ -90,18 +117,18 @@ type sonosClient struct {
 	lastPlaybackSpeed  string
 	playbackStateMutex sync.Mutex
 
-	pollTicker   *time.Ticker
-	pollDoneChan chan bool
+	connected  bool
+	connMutex  sync.Mutex
+	sonos      *sonos.Sonos
 
-	sonos   *sonos.Sonos
+	pollTicker        *time.Ticker
+	pollDoneChan      chan bool
+	reconnectDoneChan chan bool
+
 	metrics MetricsReporter
 }
 
 func (c *sonosClient) sonosConnect(ifaceName, targetSonosId string, verbose bool) error {
-	if c.sonos != nil {
-		panic("sonosConnect already called on this client")
-	}
-
 	mgr := ssdp.MakeManager()
 	defer func(mgr ssdp.Manager) {
 		if err := mgr.Close(); err != nil {
@@ -114,7 +141,7 @@ func (c *sonosClient) sonosConnect(ifaceName, targetSonosId string, verbose bool
 		defer log.SetOutput(os.Stderr)
 	}
 	if err := mgr.Discover(ifaceName, "11209", false); err != nil {
-		return errors.Wrapf(err, "SSDP discovery on interface %s failed", ifaceName)
+		return fmt.Errorf("SSDP discovery on interface %s failed: %w", ifaceName, err)
 	}
 
 	log.SetOutput(os.Stderr)
@@ -144,13 +171,60 @@ func (c *sonosClient) sonosConnect(ifaceName, targetSonosId string, verbose bool
 		return fmt.Errorf("failed to discover Sonos device with UUID '%s'", targetSonosId)
 	}
 
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
 	c.sonos = sonos.Connect(sonosDevice, nil, sonos.SVC_AV_TRANSPORT)
+	c.connected = true
+	c.metrics.ReportSonosConnected(true)
 	return nil
+}
+
+func (c *sonosClient) reconnectLoop(ifaceName, targetSonosId string, verbose bool) {
+	ticker := time.NewTicker(reconnectInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.reconnectDoneChan:
+			return
+		case <-ticker.C:
+			if c.IsConnected() {
+				continue
+			}
+			if err := c.sonosConnect(ifaceName, targetSonosId, verbose); err != nil {
+				log.Printf("Sonos reconnection attempt failed: %s", err)
+			} else {
+				log.Println("Sonos device reconnected")
+			}
+		}
+	}
+}
+
+func (c *sonosClient) setDisconnected() {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.connected = false
+	c.sonos = nil
+	c.metrics.ReportSonosConnected(false)
+}
+
+func (c *sonosClient) IsConnected() bool {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	return c.connected
+}
+
+func (c *sonosClient) getSonos() *sonos.Sonos {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	return c.sonos
 }
 
 func (c *sonosClient) IsPlaying() bool {
 	c.playbackStateMutex.Lock()
 	defer c.playbackStateMutex.Unlock()
+	if !c.IsConnected() {
+		return false
+	}
 	return c.isPlaying
 }
 
@@ -161,10 +235,14 @@ func (c *sonosClient) LastPlaybackSpeed() string {
 }
 
 func (c *sonosClient) Pause() error {
+	s := c.getSonos()
+	if s == nil {
+		return ErrNotConnected
+	}
 	if err := retry.Do(
 		func() error {
 			err := runWithTimeout("pause", 1*time.Second, func() error {
-				return c.sonos.Pause(0)
+				return s.Pause(0)
 			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
@@ -175,7 +253,7 @@ func (c *sonosClient) Pause() error {
 		retry.Delay(100*time.Millisecond),
 		retry.MaxDelay(1*time.Second),
 	); err != nil {
-		return errors.Wrap(err, "pause call failed")
+		return fmt.Errorf("pause call failed: %w", err)
 	}
 	return nil
 }
@@ -188,10 +266,14 @@ func (c *sonosClient) Play(speed string) error {
 		speed = "1"
 	}
 
+	s := c.getSonos()
+	if s == nil {
+		return ErrNotConnected
+	}
 	if err := retry.Do(
 		func() error {
 			err := runWithTimeout("play", 1*time.Second, func() error {
-				return c.sonos.Play(0, speed)
+				return s.Play(0, speed)
 			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
@@ -202,12 +284,17 @@ func (c *sonosClient) Play(speed string) error {
 		retry.Delay(100*time.Millisecond),
 		retry.MaxDelay(1*time.Second),
 	); err != nil {
-		return errors.Wrap(err, "play call failed")
+		return fmt.Errorf("play call failed: %w", err)
 	}
 	return nil
 }
 
 func (c *sonosClient) Seek(seconds int) error {
+	s := c.getSonos()
+	if s == nil {
+		return ErrNotConnected
+	}
+
 	minusSign := ""
 	if seconds < 0 {
 		minusSign = "-"
@@ -223,7 +310,7 @@ func (c *sonosClient) Seek(seconds int) error {
 	if err := retry.Do(
 		func() error {
 			err := runWithTimeout("seek", 1*time.Second, func() error {
-				return c.sonos.Seek(0, "TIME_DELTA", seekTimeStr)
+				return s.Seek(0, "TIME_DELTA", seekTimeStr)
 			})
 			if err != nil {
 				c.metrics.ReportSonosCallError()
@@ -234,7 +321,7 @@ func (c *sonosClient) Seek(seconds int) error {
 		retry.Delay(100*time.Millisecond),
 		retry.MaxDelay(1*time.Second),
 	); err != nil {
-		return errors.Wrap(err, "seek call failed")
+		return fmt.Errorf("seek call failed: %w", err)
 	}
 	return nil
 }
@@ -242,6 +329,7 @@ func (c *sonosClient) Seek(seconds int) error {
 func (c *sonosClient) Close() {
 	c.pollTicker.Stop()
 	c.pollDoneChan <- true
+	c.reconnectDoneChan <- true
 }
 
 type upnpTransportInfoResult struct {
@@ -250,6 +338,9 @@ type upnpTransportInfoResult struct {
 }
 
 func getTransportInfoWithTimeout(timeout time.Duration, sonos *sonos.Sonos, instanceId uint32) (*upnp.TransportInfo, error) {
+	if sonos == nil {
+		return nil, ErrNotConnected
+	}
 	resultCh := make(chan upnpTransportInfoResult, 1)
 	go func() {
 		retv, err := sonos.GetTransportInfo(instanceId)

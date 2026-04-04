@@ -106,10 +106,7 @@ func runMonitor(args RunMonitorArgs) error {
 		Name:       "sonos error >= every 10s",
 		LogEvery:   2,
 	})
-	sonos, err := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, sonosCallErrChan, args.verbose)
-	if err != nil {
-		return err
-	}
+	sonos := StartSonosClient(args.iface, args.targetSonosId, sonosPollInterval, metrics, sonosCallErrChan, args.verbose)
 
 	log.Println("starting main monitor/control loop")
 	if args.useMedian {
@@ -155,7 +152,9 @@ func runMonitor(args RunMonitorArgs) error {
 							state = LoudSonosWasPlaying
 							go func() {
 								if err := sonos.Pause(); err != nil {
-									sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to pause Sonos: %w", t, err)
+									if !errors.Is(err, ErrNotConnected) {
+										sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to pause Sonos: %w", t, err)
+									}
 								}
 							}()
 						} else {
@@ -169,10 +168,15 @@ func runMonitor(args RunMonitorArgs) error {
 						seekSeconds := -1 * (args.thresholdSeconds + args.extraSeekBackSeconds)
 						go func() {
 							if err := sonos.Seek(seekSeconds); err != nil {
-								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to seek Sonos %d seconds: %w", t, seekSeconds, err)
+								if !errors.Is(err, ErrNotConnected) {
+									sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to seek Sonos %d seconds: %w", t, seekSeconds, err)
+								}
+								return
 							}
 							if err := sonos.Play(sonos.LastPlaybackSpeed()); err != nil {
-								sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to resume Sonos: %w", t, err)
+								if !errors.Is(err, ErrNotConnected) {
+									sonosCallErrChan <- fmt.Errorf("[monitor] tick %s: failed to resume Sonos: %w", t, err)
+								}
 							}
 						}()
 						state = Quiet
@@ -186,6 +190,7 @@ func runMonitor(args RunMonitorArgs) error {
 
 				metrics.ReportNoiseMonitorState(state)
 				metrics.ReportNoiseLevelMeasurement(averageDb, medianDb)
+				metrics.ReportSonosConnected(sonos.IsConnected())
 			}
 		}
 	}()
