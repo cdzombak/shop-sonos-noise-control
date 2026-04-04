@@ -66,7 +66,7 @@ func StartMetricsReporter(config MetricsConfig, escalator asyncerror.Escalator, 
 	}
 	if config.InfluxUrl == "" || config.InfluxBucket == "" || config.DeviceName == "" {
 		//goland:noinspection GoErrorStringFormat
-		return nil, errors.New("Influx URL, bucket, and device name must be set")
+		return nil, errors.New("Influx URL, bucket, and device name must be set") //nolint:staticcheck
 	}
 	authString := ""
 	if config.InfluxUsername != "" || config.InfluxPassword != "" {

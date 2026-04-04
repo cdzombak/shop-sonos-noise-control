@@ -16,10 +16,10 @@ import (
 	"github.com/ianr0bkny/go-sonos/upnp"
 )
 
-var ErrNotConnected = errors.New("Sonos device is not connected")
+var ErrNotConnected = errors.New("Sonos device is not connected") //nolint:staticcheck
 
 const (
-	reconnectInterval       = 30 * time.Second
+	reconnectInterval            = 30 * time.Second
 	consecutiveFailsToDisconnect = 5
 )
 
@@ -117,9 +117,9 @@ type sonosClient struct {
 	lastPlaybackSpeed  string
 	playbackStateMutex sync.Mutex
 
-	connected  bool
-	connMutex  sync.Mutex
-	sonos      *sonos.Sonos
+	connected bool
+	connMutex sync.Mutex
+	sonos     *sonos.Sonos
 
 	pollTicker        *time.Ticker
 	pollDoneChan      chan bool
