@@ -6,7 +6,7 @@ When noise exceeds a configurable dB threshold, the program pauses the target So
 
 ## Hardware Requirements
 
-- Raspberry Pi 2+ (32-bit OS recommended)
+- Raspberry Pi 2+
 - ADS1015 I2C ADC with an analog noise/sound level sensor
 - Network connectivity to your Sonos speaker (UPnP/SSDP discovery)
 
